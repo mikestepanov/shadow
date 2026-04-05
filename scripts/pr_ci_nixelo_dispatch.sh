@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# PR-CI dispatch for Nixelo with loop detection + CI-aware routing.
+set -euo pipefail
+
+REPO_NAME="nixelo"
+REPO_DIR="$HOME/Desktop/nixelo"
+TMUX_SESSION="nixelo"
+MAX_IDENTICAL=3
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/pr_ci_dispatch_common.sh"
+
+# ── CI failure extraction (nixelo-specific) ──────────────────────────────────
+
+get_ci_failure_details() {
+  cd "$REPO_DIR"
+  local run_id
+  run_id="$(gh run list --branch "$(git branch --show-current)" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo "")"
+  [[ -z "$run_id" ]] && return 1
+
+  local log_output
+  log_output="$(gh run view "$run_id" --log-failed 2>/dev/null | tail -30 || echo "")"
+  [[ -z "$log_output" ]] && return 1
+
+  local errors
+  errors="$(echo "$log_output" | grep -E '(error TS|ERROR|FAIL|✖|expect.*failed|Error:)' | head -5)"
+
+  if [[ -n "$errors" ]]; then
+    echo "CI is failing with these specific errors. Fix each one, verify locally, commit and push.
+
+Errors:
+${errors}"
+  else
+    echo "CI is failing. Run pnpm fixme locally, fix any errors, commit and push."
+  fi
+}
+
+# ── Determine which check is failing and pick the right command ──────────────
+
+get_smart_command() {
+  cd "$REPO_DIR"
+  local pr_number
+  pr_number="$(gh pr list --head "$(git branch --show-current)" --json number -q '.[0].number' 2>/dev/null || echo "")"
+  [[ -z "$pr_number" ]] && { echo "/fix-pr-comments"; return; }
+
+  local checks
+  checks="$(gh pr checks "$pr_number" 2>/dev/null || echo "")"
+
+  # Check which specific jobs are failing
+  local failing_biome failing_e2e failing_unit failing_backend
+  failing_biome="$(echo "$checks" | grep -i 'Biome' | grep -c 'fail' || true)"
+  failing_e2e="$(echo "$checks" | grep -i 'E2E' | grep -c 'fail' || true)"
+  failing_unit="$(echo "$checks" | grep -i 'Unit' | grep -c 'fail' || true)"
+  failing_backend="$(echo "$checks" | grep -i 'Backend' | grep -c 'fail' || true)"
+
+  if [[ "$failing_e2e" -gt 0 ]]; then
+    # Get specific E2E failure details
+    local run_id
+    run_id="$(gh run list --branch "$(git branch --show-current)" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo "")"
+    if [[ -n "$run_id" ]]; then
+      local e2e_errors
+      e2e_errors="$(gh run view "$run_id" --log-failed 2>/dev/null | grep -E '(›.*spec\.ts|expect.*failed|Error:.*element|timeout)' | head -5 || echo "")"
+      if [[ -n "$e2e_errors" ]]; then
+        echo "E2E tests are failing. Fix these specific failures, run the failing test locally to verify, commit and push:
+
+${e2e_errors}"
+        return
+      fi
+    fi
+    echo "E2E tests are failing. Run pnpm playwright locally on the failing shard, identify the root cause, fix it, commit and push."
+  elif [[ "$failing_biome" -gt 0 ]]; then
+    echo "Biome/TypeScript check is failing. Run pnpm fixme locally, fix all errors, commit and push."
+  elif [[ "$failing_unit" -gt 0 ]]; then
+    echo "Unit tests are failing. Run pnpm test locally, fix the failing tests, commit and push."
+  elif [[ "$failing_backend" -gt 0 ]]; then
+    echo "Backend tests are failing. Run backend tests locally, fix the failures, commit and push."
+  else
+    echo "/fix-pr-comments"
+  fi
+}
+
+# ── CI status check ──────────────────────────────────────────────────────────
+
+check_ci_status() {
+  cd "$REPO_DIR"
+  local pr_number
+  pr_number="$(gh pr list --head "$(git branch --show-current)" --json number -q '.[0].number' 2>/dev/null || echo "")"
+  [[ -z "$pr_number" ]] && { echo "no-pr"; return; }
+
+  local checks
+  checks="$(gh pr checks "$pr_number" 2>/dev/null || echo "")"
+  [[ -z "$checks" ]] && { echo "unknown"; return; }
+
+  if echo "$checks" | grep -qE '\bfail\b'; then
+    echo "failing"
+  elif echo "$checks" | grep -qE '\bpending\b'; then
+    echo "pending"
+  else
+    echo "green"
+  fi
+}
+
+# ── main ─────────────────────────────────────────────────────────────────────
+
+CI_STATUS="$(check_ci_status)"
+
+case "$CI_STATUS" in
+  green)
+    echo "NOOP:ci-green — all checks passing, done-done handled by heartbeat"
+    exit 0
+    ;;
+  pending)
+    echo "NOOP:ci-pending — checks still running"
+    exit 0
+    ;;
+  no-pr)
+    if is_protected_branch; then
+      echo "NOOP:on-protected-branch"
+      exit 0
+    fi
+    dismiss_rating_prompt
+    if is_terminal_idle; then
+      send_command "/pr"
+      echo "OK: no open PR, dispatched /pr"
+    else
+      echo "NOOP:terminal-busy — needs /pr but terminal is working"
+    fi
+    exit 0
+    ;;
+  unknown)
+    echo "NOOP:ci-unknown — could not read CI status"
+    exit 0
+    ;;
+esac
+
+# CI is failing — pick the right command based on which check failed
+DEFAULT_CMD="$(get_smart_command)"
+
+if check_and_dispatch "$DEFAULT_CMD"; then
+  send_command "$DISPATCH_CMD"
+  echo "OK: dispatched to $TMUX_SESSION (CI: $CI_STATUS)"
+fi

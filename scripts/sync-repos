@@ -1,0 +1,40 @@
+#!/run/current-system/sw/bin/bash
+# sync-repos - Commits and pushes nixos-config and axon repos
+# Usage: sync-repos [message]
+# If no message provided, uses "update"
+
+set -e
+
+MSG="${1:-update}"
+GIT="/run/current-system/sw/bin/git"
+
+echo "🔄 Syncing repos with message: $MSG"
+
+# Sync nixos-config
+echo ""
+echo "📦 nixos-config..."
+cd ~/Desktop/nixos-config
+if [ -n "$($GIT status --porcelain)" ]; then
+    $GIT add -A
+    $GIT commit -m "$MSG"
+    $GIT push
+    echo "✅ nixos-config pushed"
+else
+    echo "⏭️  nixos-config: nothing to commit"
+fi
+
+# Sync axon
+echo ""
+echo "🧠 axon..."
+cd ~/.openclaw/workspace
+if [ -n "$($GIT status --porcelain)" ]; then
+    $GIT add -A
+    $GIT commit -m "$MSG"
+    $GIT push
+    echo "✅ axon pushed"
+else
+    echo "⏭️  axon: nothing to commit"
+fi
+
+echo ""
+echo "🎉 Done!"

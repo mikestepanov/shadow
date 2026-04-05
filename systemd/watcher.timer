@@ -1,0 +1,10 @@
+[Unit]
+Description=Run watcher health checks every 2 minutes
+
+[Timer]
+OnCalendar=*:0/2
+Persistent=true
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

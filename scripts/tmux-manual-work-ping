@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUTO_NIXELO_STATE="${SCRIPT_DIR}/auto-nixelo-enabled.json"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <nixelo|starthub>" >&2
+  exit 2
+fi
+
+is_auto_nixelo_enabled() {
+  if [[ ! -f "$AUTO_NIXELO_STATE" ]]; then
+    return 1
+  fi
+  local val
+  val=$(python3 -c "import json; print(json.load(open('$AUTO_NIXELO_STATE'))['enabled'])" 2>/dev/null || echo "False")
+  [[ "$val" == "True" ]]
+}
+
+session="$1"
+case "$session" in
+  nixelo)
+    workdir="$HOME/Desktop/nixelo"
+    todo_file="todos-hot/README.md"
+    pr_ci_cron_id="c1ac22ab-b891-4b8f-bbdb-ea9fe9d0825c"
+    timer_unit="manual-terminal-nixelo.timer"
+    msg="Read ${todo_file}. Pick the single highest-impact open item. Implement it completely and robustly — proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
+    ;;
+  starthub)
+    workdir="$HOME/Desktop/StartHub"
+    todo_file="todos/planning/postgres-migration.md"
+    pr_ci_cron_id="4e8a1a98-a905-4f77-9373-9332f7e46e77"
+    timer_unit="manual-terminal-starthub.timer"
+    msg="Read ${todo_file}. Pick the single highest-impact open item. Implement it completely and robustly — proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
+    ;;
+  *)
+    echo "invalid session: $session" >&2
+    exit 2
+    ;;
+esac
+
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  echo "SKIP manual session=${session} reason=session-missing"
+  exit 0
+fi
+
+pane="$(tmux list-panes -t "$session" -F '#{pane_id}' | head -n1)"
+target="$pane"
+
+# shared guard functions
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./terminal_classifier.sh
+source "$SCRIPT_DIR/terminal_classifier.sh"
+# Legacy guard still needed for ensure_cli and other helpers
+source "$SCRIPT_DIR/terminal_mode_guard.sh"
+
+has_error_loop() {
+  local text="$1"
+  printf '%s\n' "$text" | grep -Eiq '(-bash: .*command not found|syntax error near unexpected token|parse error|Traceback)'
+}
+
+# FIRST: unified classifier — process-tree-first, no screen-scraping race
+state="$(classify_terminal "$session")"
+if [[ "$state" == BUSY:* ]]; then
+  echo "NOOP:terminal-busy session=${session} state=$state"
+  exit 0
+fi
+if [[ "$state" == STUCK:* ]]; then
+  # NEVER send Escape or any control keys to the terminal.
+  # Stuck states are reported but not acted on — nudge script is passive.
+  echo "NOOP:terminal-stuck session=${session} state=$state"
+  exit 0
+fi
+
+
+path_now="$(tmux display-message -p -t "$pane" '#{pane_current_path}')"
+if [[ "$path_now" != "$workdir" ]]; then
+  echo "SKIP manual session=${session} reason=path-mismatch current=$path_now expected=$workdir"
+  exit 0
+fi
+
+# Read preferred CLI from config (default: cdx)
+CLI_PREF_FILE="${HOME}/.openclaw/workspace/terminal-cli-preference.json"
+preferred_cli="cdx"
+if [[ -f "$CLI_PREF_FILE" ]]; then
+  # New nested format: {"nixelo": {"manual": "cdx", "pr_ci": "cc"}}
+  # This script is manual nudge, so read the "manual" key.
+  pref=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('${CLI_PREF_FILE}'))
+    v = d.get('${session}', {})
+    if isinstance(v, dict):
+        print(v.get('manual', 'cdx'))
+    else:
+        print(v if v else 'cdx')
+except: print('cdx')
+" 2>/dev/null || echo "cdx")
+  [[ -n "$pref" ]] && preferred_cli="$pref"
+fi
+
+# Ensure preferred CLI is running (with fallback on rate limit)
+if ! ensure_cli "$pane" "$preferred_cli"; then
+  echo "BLOCKED manual session=${session} reason=ensure_cli_failed"
+  exit 0
+fi
+mode="$(mode_from_tree "$pane")"
+
+pane_tail="$(tmux capture-pane -t "$target" -p | tail -30)"
+if has_error_loop "$pane_tail"; then
+  echo "SKIP manual session=${session} reason=error-loop-detected"
+  exit 0
+fi
+
+# --- TODO completion check (runs FIRST — gates done-loop detection) ---
+# Check the assigned todo_file + any .md files it links to (markdown links).
+# If the assigned file doesn't exist, that's an error — do NOT transition.
+todo_path="${workdir}/${todo_file}"
+if [[ ! -f "$todo_path" ]]; then
+  echo "SKIP manual session=${session} reason=todo-file-missing path=${todo_path}"
+  exit 0
+fi
+
+# Collect files to check: the todo_file itself + any markdown-linked .md files
+todo_dir="$(dirname "$todo_path")"
+files_to_check=("$todo_path")
+while IFS= read -r linked; do
+  # Resolve relative path from the todo_file's directory
+  resolved="${todo_dir}/${linked}"
+  if [[ -f "$resolved" ]]; then
+    files_to_check+=("$resolved")
+  fi
+done < <(grep -oE '\]\(\.?/?[^)]+\.md\)' "$todo_path" 2>/dev/null | sed 's/\](\.\/\?//;s/)//')
+
+open_items=0
+checklist_items=0
+for f in "${files_to_check[@]}"; do
+  open_count=$(grep -c '^\s*- \[ \]' "$f" 2>/dev/null || true)
+  open_count="${open_count:-0}"
+  open_count="$(echo "$open_count" | tr -d '[:space:]')"
+  open_items=$((open_items + open_count))
+
+  checklist_count=$(grep -Ec '^\s*- \[[ xX]\]' "$f" 2>/dev/null || true)
+  checklist_count="${checklist_count:-0}"
+  checklist_count="$(echo "$checklist_count" | tr -d '[:space:]')"
+  checklist_items=$((checklist_items + checklist_count))
+done
+
+# Checklist format guard: missing checkboxes must never be treated as TODO-done.
+if [[ "$checklist_items" -eq 0 ]]; then
+  format_msg="Read ${todo_file}. Do NOT start implementation yet. First convert this TODO into markdown checkboxes (- [ ] for open items, - [x] for done items). Preserve all existing tasks/content. After converting, continue with the highest-impact open checkbox."
+  send_tmux_text_enter "$target" "$format_msg" || {
+    echo "BLOCKED_HUMAN: prompt-not-ready-for-format-fix session=${session} reason=$(busy_reason "$pane")"
+    exit 0
+  }
+
+  echo "SENT manual session=${session} mode=$mode msg=$format_msg"
+  exit 0
+fi
+
+# --- Done-loop detection: only if TODO is actually done (open_items == 0) ---
+# If there are still open TODO items, terminal saying "done" is a false positive.
+done_count=$(tmux capture-pane -t "$target" -p | tail -60 | grep -Eic '(TODO is complete|All done|Nothing left to implement|no.*implementable.*items|please cancel the recurring|please cancel|please stop|loop.*please|looping|0 failed.*0 flaky|no open items|nothing.*left|all.*resolved|all.*passing|all.*green|clean run)' || true)
+if [[ "$done_count" -ge 2 && "$open_items" -eq 0 ]]; then
+  # Gate: only auto-transition for nixelo if auto-nixelo is enabled
+  if [[ "$session" == "nixelo" ]] && ! is_auto_nixelo_enabled; then
+    echo "SKIP:auto-nixelo-off session=${session} reason=done-loop-detected but auto-nixelo disabled"
+    exit 0
+  fi
+
+  echo "TRANSITION session=${session} reason=done-loop-detected (terminal reported done ${done_count} times)"
+
+  # 1) Disable this manual timer
+  systemctl --user disable --now "$timer_unit" 2>/dev/null || true
+  echo "  disabled ${timer_unit}"
+
+  # 2) Enable PR-CI cron
+  openclaw cron enable "$pr_ci_cron_id" 2>/dev/null || true
+  echo "  enabled pr-ci cron ${pr_ci_cron_id}"
+
+  # 3) Notify via Telegram
+  openclaw cron add \
+    --name "done-loop-${session}" \
+    --at "+0m" \
+    --message "🔄 ${session}: Terminal reported done ${done_count} times (done-loop detected). Disabled manual timer, enabled PR-CI." \
+    --session isolated \
+    --announce --channel telegram --to 780599199 \
+    --delete-after-run \
+    --best-effort-deliver 2>/dev/null || true
+
+  exit 0
+elif [[ "$done_count" -ge 2 && "$open_items" -gt 0 ]]; then
+  echo "INFO session=${session} done-loop-text-detected=${done_count} but open_items=${open_items} — ignoring, TODO not done"
+fi
+
+if [[ "$open_items" -eq 0 ]]; then
+  # Gate: only auto-transition for nixelo if auto-nixelo is enabled
+  if [[ "$session" == "nixelo" ]] && ! is_auto_nixelo_enabled; then
+    echo "SKIP:auto-nixelo-off session=${session} reason=todo-done but auto-nixelo disabled"
+    exit 0
+  fi
+
+  echo "TRANSITION session=${session} reason=todo-done (0 open items in ${todo_file})"
+
+  # 1) Disable this manual timer
+  systemctl --user disable --now "$timer_unit" 2>/dev/null || true
+  echo "  disabled ${timer_unit}"
+
+  # 2) Enable PR-CI cron
+  openclaw cron enable "$pr_ci_cron_id" 2>/dev/null || true
+  echo "  enabled pr-ci cron ${pr_ci_cron_id}"
+
+  # 3) Notify via Telegram
+  openclaw cron add \
+    --name "TODO-done-${session}" \
+    --at "+0m" \
+    --message "🔄 ${session}: TODO is done (${todo_file}). Disabled manual timer, enabled PR-CI. Transition complete." \
+    --session isolated \
+    --announce --channel telegram --to 780599199 \
+    --delete-after-run \
+    --best-effort-deliver 2>/dev/null || true
+
+  exit 0
+fi
+
+# msg is set in the case block above
+
+# Final recheck right before sending — fast process-tree + queue check only
+# (no content-diff delay, we already did that in the initial classify)
+_final_pid=$(_pane_pid "$(_pane_id "$session")")
+_final_tree=$(_process_tree "$_final_pid")
+if _has_child_runners "$_final_tree"; then
+  echo "NOOP:terminal-busy session=${session} state=BUSY:runner note=final-recheck"
+  exit 0
+fi
+_final_text=$(_pane_text "$(_pane_id "$session")")
+if _has_queue_marker "$_final_text"; then
+  echo "NOOP:terminal-busy session=${session} state=BUSY:queued note=final-recheck"
+  exit 0
+fi
+if _work_indicator_near_cursor "$(_pane_id "$session")"; then
+  echo "NOOP:terminal-busy session=${session} state=BUSY:work-indicator note=final-recheck"
+  exit 0
+fi
+
+send_tmux_text_enter "$target" "$msg" || {
+  echo "BLOCKED_HUMAN: prompt-not-ready-for-manual-ping session=${session} reason=$(busy_reason "$pane")"
+  exit 0
+}
+
+echo "SENT manual session=${session} mode=$mode msg=$msg"

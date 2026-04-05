@@ -1,0 +1,40 @@
+{
+  "lastUpdated": "2026-02-12T10:57:00-06:00",
+  "dailyBudget": 100,
+  "allocation": {
+    "nixelo": {
+      "branch": "main",
+      "bots": 90,
+      "distribution": {
+        "bolt": 14,
+        "sentinel": 14,
+        "spectra": 14,
+        "auditor": 10,
+        "palette": 9,
+        "inspector": 9,
+        "refactor": 8,
+        "schema": 6,
+        "scribe": 5,
+        "librarian": 1
+      }
+    },
+    "starthub": {
+      "branch": "dev",
+      "bots": 10,
+      "distribution": {
+        "bolt": 1,
+        "sentinel": 1,
+        "spectra": 1,
+        "auditor": 1,
+        "palette": 1,
+        "inspector": 1,
+        "refactor": 1,
+        "schema": 1,
+        "scribe": 1,
+        "librarian": 1
+      }
+    }
+  },
+  "todaysTasks": [],
+  "notes": "Track tasks created each day. Reset todaysTasks at midnight CST."
+}

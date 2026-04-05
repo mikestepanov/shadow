@@ -1,0 +1,10 @@
+[Unit]
+Description=Run manual terminal nudge for starthub every 1 minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+Unit=manual-terminal-starthub.service
+
+[Install]
+WantedBy=timers.target

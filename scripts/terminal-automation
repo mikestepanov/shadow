@@ -1,0 +1,410 @@
+#!/usr/bin/env bash
+# YO — DO NOT MODIFY THIS FILE UNLESS EXPLICITLY REQUESTED BY THE USER.
+set -euo pipefail
+
+# Terminal Automation guardrail utility
+# Enforces dual control-plane checks:
+# 1) systemd user timers (manual-*/agent-*)
+# 2) OpenClaw cron jobs (pr-ci-*)
+
+SYSTEMD_UNITS=(
+  manual-terminal-nixelo.timer
+  manual-terminal-starthub.timer
+  agent-terminal-nixelo.timer
+  agent-terminal-starthub.timer
+)
+
+PRCI_NAMES=(
+  pr-ci-nixelo
+  pr-ci-starthub
+)
+
+PLAN_DIR="${HOME}/.openclaw/workspace/.terminal-automation-plans"
+mkdir -p "$PLAN_DIR"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/terminal-automation status
+  scripts/terminal-automation plan <action> <scope>    Plan a state change (prints plan, does NOT execute)
+  scripts/terminal-automation execute <plan-id>        Execute a previously planned change
+  scripts/terminal-automation off [all|nixelo|starthub] [--clean-failed]   (LEGACY — prefer plan/execute)
+  scripts/terminal-automation assert-off [all|nixelo|starthub]
+
+Actions for plan:
+  enable-manual <nixelo|starthub|all>
+  disable-manual <nixelo|starthub|all>
+  enable-prci <nixelo|starthub|all>
+  disable-prci <nixelo|starthub|all>
+  off <all|nixelo|starthub>
+
+Notes:
+  - "OFF" means both control planes are off.
+  - For systemd units: inactive + disabled/masked/not-found is acceptable OFF.
+  - For OpenClaw PR-CI jobs: status must be disabled.
+  - AI agents MUST use plan/execute flow. Direct openclaw cron/systemctl calls are forbidden.
+EOF
+}
+
+scope_units() {
+  local scope="$1" filter="${2:-all}"
+  local units=()
+  case "$scope" in
+    all)
+      case "$filter" in
+        manual) units=(manual-terminal-nixelo.timer manual-terminal-starthub.timer) ;;
+        agent)  units=(agent-terminal-nixelo.timer agent-terminal-starthub.timer) ;;
+        *)      units=("${SYSTEMD_UNITS[@]}") ;;
+      esac
+      ;;
+    nixelo)
+      case "$filter" in
+        manual) units=(manual-terminal-nixelo.timer) ;;
+        agent)  units=(agent-terminal-nixelo.timer) ;;
+        *)      units=(manual-terminal-nixelo.timer agent-terminal-nixelo.timer) ;;
+      esac
+      ;;
+    starthub)
+      case "$filter" in
+        manual) units=(manual-terminal-starthub.timer) ;;
+        agent)  units=(agent-terminal-starthub.timer) ;;
+        *)      units=(manual-terminal-starthub.timer agent-terminal-starthub.timer) ;;
+      esac
+      ;;
+    *)
+      echo "invalid scope: $scope" >&2
+      exit 2
+      ;;
+  esac
+  printf '%s\n' "${units[@]}"
+}
+
+scope_prci() {
+  local scope="$1"
+  case "$scope" in
+    all)
+      printf '%s\n' "${PRCI_NAMES[@]}"
+      ;;
+    nixelo)
+      printf '%s\n' pr-ci-nixelo
+      ;;
+    starthub)
+      printf '%s\n' pr-ci-starthub
+      ;;
+    *)
+      echo "invalid scope: $scope" >&2
+      exit 2
+      ;;
+  esac
+}
+
+unit_active() { systemctl --user is-active "$1" 2>&1 || true; }
+unit_enabled() { systemctl --user is-enabled "$1" 2>&1 || true; }
+
+cron_list_json() { openclaw cron list --all --json; }
+cron_job_id_by_name() {
+  local name="$1"
+  cron_list_json | node -e 'const fs=require("fs"); const n=process.argv[1]; const data=JSON.parse(fs.readFileSync(0,"utf8")); const jobs=Array.isArray(data)?data:(data.jobs||[]); const row=jobs.find((j)=>j.name===n); if(row) process.stdout.write(row.id);' "$name"
+}
+cron_job_status_by_name() {
+  local name="$1"
+  cron_list_json | node -e 'const fs=require("fs"); const n=process.argv[1]; const data=JSON.parse(fs.readFileSync(0,"utf8")); const jobs=Array.isArray(data)?data:(data.jobs||[]); const row=jobs.find((j)=>j.name===n); if(row){ process.stdout.write(row.enabled? (row.state?.lastStatus || "enabled") : "disabled"); }' "$name"
+}
+
+print_status() {
+  echo "== Non-AI System Terminal Automation =="
+  while IFS= read -r unit; do
+    local a e
+    a="$(unit_active "$unit")"
+    e="$(unit_enabled "$unit")"
+    printf '%-34s active=%-10s enabled=%-10s\n' "$unit" "$a" "$e"
+  done < <(scope_units all)
+
+  echo
+  echo "== AI-powered Terminal Automation (OpenClaw cron) =="
+  while IFS= read -r name; do
+    local id st
+    id="$(cron_job_id_by_name "$name")"
+    st="$(cron_job_status_by_name "$name")"
+    if [[ -z "$id" ]]; then
+      printf '%-18s id=%-36s status=%s\n' "$name" "(missing)" "missing"
+    else
+      printf '%-18s id=%-36s status=%s\n' "$name" "$id" "$st"
+    fi
+  done < <(scope_prci all)
+
+  echo
+  echo "== Failed user units =="
+  systemctl --user --failed --no-legend || true
+}
+
+systemd_off_ok() {
+  local unit="$1"
+  local a e
+  a="$(unit_active "$unit")"
+  e="$(unit_enabled "$unit")"
+
+  local active_ok=0 enabled_ok=0
+  [[ "$a" == "inactive" || "$a" == "failed" || "$a" == "unknown" ]] && active_ok=1
+  [[ "$e" == "disabled" || "$e" == "masked" || "$e" == "not-found" ]] && enabled_ok=1
+
+  [[ $active_ok -eq 1 && $enabled_ok -eq 1 ]]
+}
+
+cron_off_ok() {
+  local name="$1"
+  local st
+  st="$(cron_job_status_by_name "$name")"
+  [[ "$st" == "disabled" || -z "$st" ]]
+}
+
+set_off() {
+  local scope="$1"
+  local clean_failed="$2"
+
+  echo "[off] scope=$scope"
+
+  # systemd plane
+  while IFS= read -r unit; do
+    systemctl --user stop "$unit" 2>/dev/null || true
+    systemctl --user disable "$unit" 2>/dev/null || true
+  done < <(scope_units "$scope")
+
+  # OpenClaw cron plane
+  while IFS= read -r name; do
+    local id
+    id="$(cron_job_id_by_name "$name")"
+    if [[ -n "$id" ]]; then
+      openclaw cron disable "$id" >/dev/null
+    fi
+  done < <(scope_prci "$scope")
+
+  if [[ "$clean_failed" == "yes" ]]; then
+    systemctl --user reset-failed || true
+  fi
+}
+
+assert_off() {
+  local scope="$1"
+  local ok=1
+
+  while IFS= read -r unit; do
+    if ! systemd_off_ok "$unit"; then
+      echo "ASSERT_FAIL systemd $unit active=$(unit_active "$unit") enabled=$(unit_enabled "$unit")"
+      ok=0
+    fi
+  done < <(scope_units "$scope")
+
+  while IFS= read -r name; do
+    if ! cron_off_ok "$name"; then
+      echo "ASSERT_FAIL cron $name status=$(cron_job_status_by_name "$name")"
+      ok=0
+    fi
+  done < <(scope_prci "$scope")
+
+  if [[ "$ok" -eq 1 ]]; then
+    echo "ASSERT_OK off scope=$scope"
+  else
+    return 1
+  fi
+}
+
+create_plan() {
+  local action="$1"
+  local scope="$2"
+  local plan_id
+  plan_id="$(date +%s)-$$"
+  local plan_file="$PLAN_DIR/$plan_id.json"
+  local changes=""
+
+  case "$action" in
+    enable-manual)
+      changes="Enable manual-terminal timers"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=active enabled=enabled"
+      done < <(scope_units "$scope" "manual")
+      ;;
+    disable-manual)
+      changes="Disable manual-terminal timers"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=inactive enabled=disabled"
+      done < <(scope_units "$scope" "manual")
+      ;;
+    enable-prci)
+      changes="Enable PR-CI cron jobs"
+      while IFS= read -r name; do
+        local st
+        st="$(cron_job_status_by_name "$name")"
+        changes="$changes\n  $name: status=$st → status=enabled"
+      done < <(scope_prci "$scope")
+      ;;
+    disable-prci)
+      changes="Disable PR-CI cron jobs"
+      while IFS= read -r name; do
+        local st
+        st="$(cron_job_status_by_name "$name")"
+        changes="$changes\n  $name: status=$st → status=disabled"
+      done < <(scope_prci "$scope")
+      ;;
+    off)
+      changes="Turn OFF all terminal automation"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → OFF"
+      done < <(scope_units "$scope")
+      while IFS= read -r name; do
+        local st
+        st="$(cron_job_status_by_name "$name")"
+        changes="$changes\n  $name: status=$st → disabled"
+      done < <(scope_prci "$scope")
+      ;;
+    *)
+      echo "Unknown action: $action" >&2
+      return 2
+      ;;
+  esac
+
+  # Write plan file
+  cat > "$plan_file" <<EOF
+{"plan_id":"$plan_id","action":"$action","scope":"$scope","created_at":$(date +%s),"executed":false}
+EOF
+
+  echo "═══════════════════════════════════════════"
+  echo "  PLAN $plan_id"
+  echo "═══════════════════════════════════════════"
+  printf '%b\n' "$changes"
+  echo ""
+  echo "To execute: scripts/terminal-automation execute $plan_id"
+  echo "═══════════════════════════════════════════"
+}
+
+execute_plan() {
+  local plan_id="$1"
+  local plan_file="$PLAN_DIR/$plan_id.json"
+
+  if [[ ! -f "$plan_file" ]]; then
+    echo "ERROR: No plan found with id '$plan_id'. Run 'plan' first." >&2
+    return 1
+  fi
+
+  # Check if already executed
+  if grep -q '"executed":true' "$plan_file"; then
+    echo "ERROR: Plan '$plan_id' was already executed." >&2
+    return 1
+  fi
+
+  # Parse plan
+  local action scope
+  action=$(node -e "const d=JSON.parse(require('fs').readFileSync('$plan_file','utf8')); process.stdout.write(d.action)")
+  scope=$(node -e "const d=JSON.parse(require('fs').readFileSync('$plan_file','utf8')); process.stdout.write(d.scope)")
+
+  echo "Executing plan $plan_id: action=$action scope=$scope"
+
+  case "$action" in
+    enable-manual)
+      while IFS= read -r unit; do
+        systemctl --user enable "$unit" 2>/dev/null || true
+        systemctl --user start "$unit" 2>/dev/null || true
+      done < <(scope_units "$scope" "manual")
+      ;;
+    disable-manual)
+      while IFS= read -r unit; do
+        systemctl --user stop "$unit" 2>/dev/null || true
+        systemctl --user disable "$unit" 2>/dev/null || true
+      done < <(scope_units "$scope" "manual")
+      ;;
+    enable-prci)
+      while IFS= read -r name; do
+        local id
+        id="$(cron_job_id_by_name "$name")"
+        if [[ -n "$id" ]]; then
+          openclaw cron enable "$id" >/dev/null
+        fi
+      done < <(scope_prci "$scope")
+      ;;
+    disable-prci)
+      while IFS= read -r name; do
+        local id
+        id="$(cron_job_id_by_name "$name")"
+        if [[ -n "$id" ]]; then
+          openclaw cron disable "$id" >/dev/null
+        fi
+      done < <(scope_prci "$scope")
+      ;;
+    off)
+      set_off "$scope" "no"
+      ;;
+    *)
+      echo "ERROR: Unknown action '$action'" >&2
+      return 1
+      ;;
+  esac
+
+  # Mark as executed
+  sed -i 's/"executed":false/"executed":true/' "$plan_file"
+
+  echo ""
+  echo "=== Post-execution state ==="
+  print_status
+}
+
+# Clean up old plans (>24h)
+find "$PLAN_DIR" -name '*.json' -mmin +1440 -delete 2>/dev/null || true
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    status)
+      print_status
+      ;;
+    plan)
+      local action="${2:-}"
+      local scope="${3:-all}"
+      if [[ -z "$action" ]]; then
+        echo "Usage: terminal-automation plan <action> <scope>" >&2
+        exit 2
+      fi
+      create_plan "$action" "$scope"
+      ;;
+    execute)
+      local plan_id="${2:-}"
+      if [[ -z "$plan_id" ]]; then
+        echo "Usage: terminal-automation execute <plan-id>" >&2
+        exit 2
+      fi
+      execute_plan "$plan_id"
+      ;;
+    off)
+      local scope="${2:-all}"
+      local clean_failed="no"
+      if [[ "${3:-}" == "--clean-failed" || "${2:-}" == "--clean-failed" ]]; then
+        clean_failed="yes"
+      fi
+      set_off "$scope" "$clean_failed"
+      print_status
+      assert_off "$scope"
+      ;;
+    assert-off)
+      local scope="${2:-all}"
+      assert_off "$scope"
+      ;;
+    -h|--help|help|"")
+      usage
+      ;;
+    *)
+      echo "Unknown command: $cmd" >&2
+      usage
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

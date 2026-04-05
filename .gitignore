@@ -1,0 +1,4 @@
+.terminal-automation-plans/
+watcher-state.json
+health-summary.json
+heartbeat-dispatch-state.json

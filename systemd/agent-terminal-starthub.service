@@ -1,0 +1,6 @@
+[Unit]
+Description=Agent terminal nudge for starthub tmux session
+
+[Service]
+Type=oneshot
+ExecStart=/home/mikhail/Desktop/axon/scripts/tmux-agent-work-ping starthub

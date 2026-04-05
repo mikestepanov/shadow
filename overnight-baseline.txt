@@ -1,0 +1,5 @@
+=== BASELINE Sat Feb 28 11:37:05 PM CST 2026 ===
+CASCADE:
+499a9077 docs(jules): tell Librarian to never use pnpm.overrides
+STARTHUB:
+c393224a6 docs(todos): add comprehensive E2E admin testing plan

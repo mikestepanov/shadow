@@ -1,0 +1,10 @@
+[Unit]
+Description=Run agent terminal nudge for nixelo every 1 minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+Unit=agent-terminal-nixelo.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+{
+  "nixelo": {
+    "manual": "cdx",
+    "pr_ci": "cc"
+  },
+  "starthub": {
+    "manual": "cdx",
+    "pr_ci": "cc"
+  }
+}

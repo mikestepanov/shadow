@@ -1,0 +1,10 @@
+[Unit]
+Description=Run agent terminal nudge for starthub every 1 minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+Unit=agent-terminal-starthub.service
+
+[Install]
+WantedBy=timers.target

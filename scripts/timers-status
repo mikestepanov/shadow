@@ -1,0 +1,30 @@
+#!/run/current-system/sw/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_SYSTEMD_DIR="$REPO_DIR/systemd"
+USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
+
+mapfile -t TIMER_FILES < <(find "$REPO_SYSTEMD_DIR" -maxdepth 1 -type f -name '*.timer' -printf '%f\n' | sort)
+
+if [ "${#TIMER_FILES[@]}" -eq 0 ]; then
+  echo "No repo-managed timers found in $REPO_SYSTEMD_DIR"
+  exit 0
+fi
+
+echo "Repo-managed timers:" 
+for timer in "${TIMER_FILES[@]}"; do
+  unit="$timer"
+  src="$USER_SYSTEMD_DIR/$unit"
+  active="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
+  enabled="$(systemctl --user is-enabled "$unit" 2>/dev/null || true)"
+  if [ -L "$src" ]; then
+    link_target="$(readlink -f "$src" 2>/dev/null || readlink "$src" || true)"
+  elif [ -e "$src" ]; then
+    link_target="(regular file)"
+  else
+    link_target="(not installed)"
+  fi
+  printf '%-42s active=%-10s enabled=%-10s source=%s\n' "$unit" "$active" "$enabled" "$link_target"
+done

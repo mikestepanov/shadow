@@ -1,0 +1,6 @@
+[Unit]
+Description=Manual terminal nudge for starthub tmux session
+
+[Service]
+Type=oneshot
+ExecStart=/home/mikhail/Desktop/axon/scripts/tmux-manual-work-ping starthub

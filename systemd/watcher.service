@@ -1,0 +1,8 @@
+[Unit]
+Description=Terminal automation watcher - deterministic health checks
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/mikhail/Desktop/axon/scripts/watcher.sh
+TimeoutStartSec=60

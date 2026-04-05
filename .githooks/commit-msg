@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+msg_file="${1:?commit message file required}"
+marker_file=".git/.protected-files-staged"
+
+if [[ -f "$marker_file" ]]; then
+  if ! grep -q 'ALLOW_PROTECTED_EDIT' "$msg_file"; then
+    echo "ERROR: protected files are staged. Commit message must include token: ALLOW_PROTECTED_EDIT" >&2
+    echo "Protected files:" >&2
+    cat "$marker_file" >&2
+    exit 1
+  fi
+  rm -f "$marker_file"
+fi
+
+exit 0

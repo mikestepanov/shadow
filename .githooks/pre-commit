@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+protected_regex='^(HEARTBEAT\.md|GUARDRAILS\.md)$'
+marker_file=".git/.protected-files-staged"
+
+staged=$(git diff --cached --name-only || true)
+if printf '%s\n' "$staged" | grep -Eq "$protected_regex"; then
+  printf '%s\n' "$staged" | grep -E "$protected_regex" > "$marker_file"
+else
+  rm -f "$marker_file"
+fi
+
+exit 0
