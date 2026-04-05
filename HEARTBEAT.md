@@ -48,10 +48,10 @@ recovery:
 
 ## ⚠️ WATCHER-FIRST PROTOCOL (v3, added 2026-03-30)
 
-**The watcher script (`~/Desktop/axon/scripts/watcher.sh`) runs every 2 min via systemd timer and writes structured JSON to `~/Desktop/axon/watcher-state.json`.**
+**The watcher script (`~/Desktop/shadow/scripts/watcher.sh`) runs every 2 min via systemd timer and writes structured JSON to `~/Desktop/shadow/watcher-state.json`.**
 
 ### Heartbeat AI MUST:
-1. **Read the watcher state file FIRST** — `cat ~/Desktop/axon/watcher-state.json`
+1. **Read the watcher state file FIRST** — `cat ~/Desktop/shadow/watcher-state.json`
 2. **Report what the watcher found** — alerts, repo status, cron health
 3. **If alerts exist** → report to Mikhail via Telegram, do NOT fix directly
 4. **If no alerts** → HEARTBEAT_OK
@@ -71,7 +71,7 @@ recovery:
 - ✅ Run `openclaw cron list` to check cron health
 - ✅ Run `openclaw cron edit <id> --model <model>` to fix broken cron models
 - ✅ Run `openclaw cron run <id>` to force-run a broken cron
-- ✅ Run `bash ~/Desktop/axon/scripts/auto_nixelo_cycle.sh` (read-only check)
+- ✅ Run `bash ~/Desktop/shadow/scripts/auto_nixelo_cycle.sh` (read-only check)
 - ✅ Send alerts via `message` tool to Telegram
 - ✅ Use `terminal-automation plan/execute` flow (with user APPROVE)
 - ✅ Run read-only git commands (`git log`, `git status`, `git branch`)
@@ -142,12 +142,12 @@ openclaw cron list --all 2>&1  # look for pr-ci-* enabled status
 2. If a repo's TODO file no longer exists but its manual cron is still ON → disable manual cron immediately (work is done, nothing to nudge).
 3. This check must run EVERY cycle regardless of terminal busy state. "Terminal busy" is not a reason to skip conflict detection.
 4. **Missing canonical unit self-heal (added 2026-03-30):** if any canonical terminal unit (`manual-terminal-*`, `agent-terminal-*`) is `Loaded: not-found`, heartbeat MUST repair it in-cycle:
-   - restore from `~/Desktop/axon/systemd/<unit>` into `~/.config/systemd/user/<unit>`
+   - restore from `~/Desktop/shadow/systemd/<unit>` into `~/.config/systemd/user/<unit>`
    - run `systemctl --user daemon-reload`
    - run `systemctl --user reset-failed <unit>`
    - run `systemctl --user disable <unit>` (ensure clean OFF state — prevents stale enable symlinks from auto-starting the timer)
    - verify `Loaded: loaded` AND `Active: inactive` AND `enabled: disabled` before continuing
-5. If the source unit file is missing in `~/Desktop/axon/systemd/`, fail closed: emit alert (not `HEARTBEAT_OK`) with exact missing path.
+5. If the source unit file is missing in `~/Desktop/shadow/systemd/`, fail closed: emit alert (not `HEARTBEAT_OK`) with exact missing path.
 
 ---
 
@@ -195,7 +195,7 @@ Classify runtime mode each cycle:
 - **Nudge-vs-control hard gate (added 2026-03-09):** heartbeat/cron may send task nudges, but must not send control/mutation commands (`C-c`, mode switch, `cd`, stop/handoff directives, or PR slash-command dispatch) unless BOTH are verified in-cycle: (1) workflow is independently done, and (2) terminal process is truly idle.
 - **Global terminal-busy wait rule (added 2026-03-10):** for any terminal-touching cron/heartbeat path, if target tmux pane is actively working (not true paused/idle), return `NOOP:terminal-busy` and perform zero mutations/dispatch in that cycle. No exceptions for PR-CI mode switching.
 - **15-minute handoff timer is stateful (hard rule), not in-memory:**
-  - State file: `~/Desktop/axon/heartbeat-handoff-state.json` (same as `~/.openclaw/workspace/heartbeat-handoff-state.json`).
+  - State file: `~/Desktop/shadow/heartbeat-handoff-state.json` (same as `~/.openclaw/workspace/heartbeat-handoff-state.json`).
   - Per repo fields: `handoff_started_at` (epoch ms or null), `cut_sent` (bool).
   - On first dirty-handoff detection, set `handoff_started_at=now`, `cut_sent=false`, send commit-and-stop instruction.
   - On subsequent runs, compute elapsed from `handoff_started_at`.
@@ -257,7 +257,7 @@ journalctl --user -u manual-terminal-<repo>.service --since "-30min" --no-pager 
 
 **Hard rules:**
 1. If terminal appears idle (at `›` prompt) but last 30min of journal shows only `NOOP:terminal-busy` → **BUG in busy detection**. Alert immediately and investigate `busy_reason` output.
-2. If terminal is idle and last SENT is >30min ago → something is wrong. Run the nudge script manually to test: `~/Desktop/axon/scripts/tmux-manual-work-ping <session>`
+2. If terminal is idle and last SENT is >30min ago → something is wrong. Run the nudge script manually to test: `~/Desktop/shadow/scripts/tmux-manual-work-ping <session>`
 3. Never report "all systems operational" or `HEARTBEAT_OK` when the timer is ON but zero nudges are being delivered to an idle terminal. This is a **hard gate** — any active timer with 0 SENT in last 10 minutes on an idle terminal MUST be flagged, never ignored.
 4. **Agnostic busy-detection law (added 2026-03-30):** busy detection must work uniformly across ALL terminal lanes/sessions and CLI UIs (cdx/cc/other). Queue markers, pending outbound messages, and background-terminal waits are BUSY regardless of prompt shape or provider-specific UI text. Never rely on one model’s exact wording.
 
@@ -323,11 +323,11 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
 **Gate logic:**
 - IF (CI == pass) AND (unpushed == 0) AND (new_human_comments == 0) AND (unresolved_threads == 0):
   - Mark PR done-done.
-  - Run `bash ~/Desktop/axon/scripts/auto_nixelo_cycle.sh` which handles: disable PR-CI → merge PR → checkout main → new date branch → enable manual cron → Telegram notification.
+  - Run `bash ~/Desktop/shadow/scripts/auto_nixelo_cycle.sh` which handles: disable PR-CI → merge PR → checkout main → new date branch → enable manual cron → Telegram notification.
 
 ### 3.2) Auto-Nixelo Mode (added 2026-03-23)
 
-**GATE CHECK (added 2026-03-30):** Before ANY auto-nixelo action (TODO exhaustion transition, PR-CI enable, auto_nixelo_cycle.sh), heartbeat MUST read `~/Desktop/axon/auto-nixelo-enabled.json`. If `{"enabled": false}`, skip ALL auto-nixelo logic for this cycle. No exceptions. This file is the kill switch controlled by automationctl.
+**GATE CHECK (added 2026-03-30):** Before ANY auto-nixelo action (TODO exhaustion transition, PR-CI enable, auto_nixelo_cycle.sh), heartbeat MUST read `~/Desktop/shadow/auto-nixelo-enabled.json`. If `{"enabled": false}`, skip ALL auto-nixelo logic for this cycle. No exceptions. This file is the kill switch controlled by automationctl.
 
 **Full lifecycle — runs automatically, no human intervention needed:**
 

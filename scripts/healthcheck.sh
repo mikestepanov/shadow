@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STATE_FILE="$HOME/Desktop/axon/watcher-state.json"
-SUMMARY_FILE="$HOME/Desktop/axon/health-summary.json"
+STATE_FILE="$HOME/Desktop/shadow/watcher-state.json"
+SUMMARY_FILE="$HOME/Desktop/shadow/health-summary.json"
 MAX_AGE_S="${AXON_MAX_STATE_AGE_S:-300}"
 
 declare -A EXPECTED_UNIT_FILE_STATE=(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="$HOME/Desktop/axon"
+REPO="$HOME/Desktop/shadow"
 USERD="$HOME/.config/systemd/user"
 
 ok() { echo "OK   $*"; }

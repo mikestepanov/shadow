@@ -6,10 +6,10 @@
 
 Protected files:
 - `HEARTBEAT.md`
-- `~/Desktop/axon/scripts/terminal-automation`
-- `~/Desktop/axon/scripts/pr_done_merge.sh`
-- `~/Desktop/axon/scripts/pr_ci_nixelo_dispatch.sh`
-- `~/Desktop/axon/scripts/pr_ci_starthub_dispatch.sh`
+- `~/Desktop/shadow/scripts/terminal-automation`
+- `~/Desktop/shadow/scripts/pr_done_merge.sh`
+- `~/Desktop/shadow/scripts/pr_ci_nixelo_dispatch.sh`
+- `~/Desktop/shadow/scripts/pr_ci_starthub_dispatch.sh`
 
 ## Approval requirement
 

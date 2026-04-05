@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-STATE_FILE="$HOME/Desktop/axon/heartbeat-dispatch-state.json"
+STATE_FILE="$HOME/Desktop/shadow/heartbeat-dispatch-state.json"
 MAX_IDENTICAL="${MAX_IDENTICAL:-3}"
 GH="$(command -v gh)"
 

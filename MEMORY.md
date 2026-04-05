@@ -50,11 +50,11 @@ The `-agent` repos are for PR review crons, NOT terminal work!
 
 ## Setup & Infrastructure
 - **Platform:** OpenClaw on **NixOS** (migrated from Windows 2026-02-06)
-- **Workspace:** `~/.openclaw/workspace` = `~/Desktop/axon` (same dir, symlinked) — no sync needed
+- **Workspace:** `~/.openclaw/workspace` = `~/Desktop/shadow` (same dir, symlinked) — no sync needed
 - **Auto-sync timer:** `sync-repos.timer` (systemd user timer, every 4h) — auto-commits & pushes axon + nixos-config
-  - Timer definition: `~/Desktop/axon/systemd/sync-repos.timer`
-  - Script: `~/Desktop/axon/scripts/sync-repos`
-  - Install with: `~/Desktop/axon/scripts/setup-timer`
+  - Timer definition: `~/Desktop/shadow/systemd/sync-repos.timer`
+  - Script: `~/Desktop/shadow/scripts/sync-repos`
+  - Install with: `~/Desktop/shadow/scripts/setup-timer`
   - ⚠️ Needs to be installed after fresh NixOS setup
 - **Telegram bot:** @mstepanov_openclaw_bot
 - **Primary model:** anthropic/claude-opus-4-5 (note: 4.6 is AG-only, not on Anthropic direct)
@@ -126,7 +126,7 @@ The `-agent` repos are for PR review crons, NOT terminal work!
 
 ## Preferences & Decisions
 - **Evidence-first wording rule (2026-03-26): Never use hedge words like "likely/probably/maybe" when facts are checkable. Do the research first (commands/logs/files), then report verified findings directly.**
-- **Auto-nixelo execution rule (2026-03-24): Every heartbeat cycle where `pr-ci-nixelo` is enabled, MUST run `bash ~/Desktop/axon/scripts/auto_nixelo_cycle.sh`. Do not just report status. The heartbeat owns done-done detection and merge execution — passive reporting is a failure.**
+- **Auto-nixelo execution rule (2026-03-24): Every heartbeat cycle where `pr-ci-nixelo` is enabled, MUST run `bash ~/Desktop/shadow/scripts/auto_nixelo_cycle.sh`. Do not just report status. The heartbeat owns done-done detection and merge execution — passive reporting is a failure.**
 - **No autonomous GitHub actions rule (2026-03-24): NEVER close, merge, create, or modify PRs/issues without explicit APPROVE. No exceptions. Closing PR #927 without approval was a direct violation. This includes "cleanup" closes — if a PR shouldn't exist, tell Mikhail and let him decide. Only specialized agents (heartbeat, PR-CI dispatch scripts) may open/merge PRs as part of their automated flow. The main interactive agent (me) must NEVER open, close, or merge PRs directly.**
 - **No tmux text injection rule (2026-03-24): NEVER send `clear`, `exit`, or any shell command via `tmux send-keys` to a pane running `cc`/`cdx` — the agent interprets it as user input. Use `tmux clear-history` for history only. If pane text needs clearing, do NOT send keystrokes.**
 - **Approval scope rule (2026-03-24): An APPROVE for one fix does NOT carry over to subsequent fixes, even if related. Each new scope requires its own PLAN + APPROVE cycle. "Fix all" applies only to the items listed in the plan that was approved.**
@@ -361,7 +361,7 @@ Can invoke other AI tools from terminal:
   - `scripts/terminal-automation assert-off all`
   - `scripts/terminal-automation off all --clean-failed`
 - **Reporting lock reaffirmed:** never claim OFF/ON without dual-plane verification and explicit before→after deltas.
-- **Recreate-missing-terminal-unit rule (2026-03-12):** If user asks to enable a terminal timer and it is `not-found`, treat that as expected drift (often intentionally deleted) and immediately recreate/install the canonical unit(s) from `~/Desktop/axon/systemd/`, then daemon-reload, then enable/start, then verify. Do not stop at reporting `not-found`.
+- **Recreate-missing-terminal-unit rule (2026-03-12):** If user asks to enable a terminal timer and it is `not-found`, treat that as expected drift (often intentionally deleted) and immediately recreate/install the canonical unit(s) from `~/Desktop/shadow/systemd/`, then daemon-reload, then enable/start, then verify. Do not stop at reporting `not-found`.
 
 ## Incident Note (2026-03-24) — Nixelo Auto-Mode Disaster
 
@@ -389,7 +389,7 @@ Can invoke other AI tools from terminal:
 3. **Heartbeat didn't self-heal** — interactive sessions (me talking to Mikhail) never checked heartbeat cron health. **Fix:** added mandatory self-health check to HEARTBEAT.md — every pass must verify cron status, fix errors in-cycle.
 4. **StartHub done-done missed** — TODO completed, file deleted, manual cron disabled, but no PR-CI transition. Heartbeat saw "both OFF = human-controlled" and did nothing. **Fix:** need to update heartbeat to detect done-done signals even when automation is OFF (unpushed commits + missing TODO = needs PR).
 5. **PR-CI crons invisible** — `openclaw cron list` without `--all` hides disabled jobs. I said they "don't exist" when they were just disabled. **Fix:** always use `openclaw cron list --all`.
-6. **Missing service file** — `manual-terminal-starthub.service` symlink was missing from `~/.config/systemd/user/`. Timer enabled but couldn't start. **Fix:** re-symlinked from `~/Desktop/axon/systemd/`.
+6. **Missing service file** — `manual-terminal-starthub.service` symlink was missing from `~/.config/systemd/user/`. Timer enabled but couldn't start. **Fix:** re-symlinked from `~/Desktop/shadow/systemd/`.
 
 **Hard lessons:**
 - **Self-heal means self-heal.** Don't wait for Mikhail to notice. Check cron health every heartbeat pass (interactive AND cron). If something's broken, fix it.
@@ -415,7 +415,7 @@ Full end-to-end cycle, no manual intervention needed:
 
 ## PR-CI Loop Detection (added 2026-03-16)
 - **Dispatch scripts**: `scripts/pr_ci_nixelo_dispatch.sh`, `scripts/pr_ci_starthub_dispatch.sh` (with shared `pr_ci_dispatch_common.sh`)
-- **State file**: `~/Desktop/axon/heartbeat-dispatch-state.json`
+- **State file**: `~/Desktop/shadow/heartbeat-dispatch-state.json`
 - **Behavior**: After 3 identical dispatches with no new commit → read CI logs → craft specific fix → if that also loops → alert Mikhail via Telegram and stop
 - **Key features**: rating prompt auto-dismiss, terminal-busy detection, commit-hash-based progress tracking
 - **Lesson (2026-03-16)**: Blind re-dispatch of `/fix-pr-comments` ran for 8+ hours with zero progress. I (Axon) should have caught this in interactive mode but didn't. Both the scripts AND the interactive heartbeat now have loop detection.

@@ -3,4 +3,4 @@ Description=Agent terminal nudge for nixelo tmux session
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/axon/scripts/tmux-agent-work-ping nixelo
+ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-agent-work-ping nixelo

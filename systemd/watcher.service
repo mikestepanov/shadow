@@ -4,5 +4,5 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/axon/scripts/watcher.sh
+ExecStart=/home/mikhail/Desktop/shadow/scripts/watcher.sh
 TimeoutStartSec=60

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-STATE_FILE="$HOME/Desktop/axon/watcher-state.json"
+STATE_FILE="$HOME/Desktop/shadow/watcher-state.json"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EPOCH=$(date +%s)
 

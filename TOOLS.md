@@ -61,13 +61,13 @@ Messaging/heartbeat terminology lock:
 NixOS-first launch (no pip):
 
 ```bash
-nix-shell -p python313Packages.textual --run '~/Desktop/axon/scripts/automationctl'
+nix-shell -p python313Packages.textual --run '~/Desktop/shadow/scripts/automationctl'
 ```
 
 Direct launch (works when Python already has `textual`):
 
 ```bash
-~/Desktop/axon/scripts/automationctl
+~/Desktop/shadow/scripts/automationctl
 ```
 
 If `textual` is missing, the launcher prints the exact `nix shell ...` fallback command.

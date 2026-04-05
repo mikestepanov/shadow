@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STATE_FILE="$HOME/Desktop/axon/watcher-state.json"
+STATE_FILE="$HOME/Desktop/shadow/watcher-state.json"
 
 printf 'OpenClaw recent\n'
 

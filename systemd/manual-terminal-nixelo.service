@@ -3,4 +3,4 @@ Description=Manual terminal nudge for nixelo tmux session
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/axon/scripts/tmux-manual-work-ping nixelo
+ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-manual-work-ping nixelo

@@ -4,8 +4,8 @@
 
 Canonical local checkout:
 
-- `~/Desktop/axon`
-- `~/.openclaw/workspace` is a symlink to `~/Desktop/axon`
+- `~/Desktop/shadow`
+- `~/.openclaw/workspace` is a symlink to `~/Desktop/shadow`
 
 What lives here:
 
@@ -31,9 +31,9 @@ Useful commands:
 
 - `axh` — run the health check
 - `axr` — show the latest watcher + heartbeat snapshot
-- `bash ~/Desktop/axon/scripts/healthcheck.sh` — run health check directly
-- `bash ~/Desktop/axon/scripts/recent.sh` — print the current watcher summary
-- `nix-shell -p python313Packages.textual --run '~/Desktop/axon/scripts/automationctl'` — open the automation control TUI
+- `bash ~/Desktop/shadow/scripts/healthcheck.sh` — run health check directly
+- `bash ~/Desktop/shadow/scripts/recent.sh` — print the current watcher summary
+- `nix-shell -p python313Packages.textual --run '~/Desktop/shadow/scripts/automationctl'` — open the automation control TUI
 - `systemctl --user start watcher.service` — force a fresh watcher snapshot
 - `openclaw cron list --all` — inspect Heartbeat and PR-CI cron status
 
