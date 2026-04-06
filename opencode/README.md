@@ -1,0 +1,24 @@
+# OpenCode Controller
+
+This folder is for the OpenCode-based controller and related automation.
+
+Planned scope:
+- machine-readable busy/idle detection
+- safe prompt/command submission when idle
+- optional scheduler and channel integrations
+
+Current goal:
+- replace tmux-first automation with OpenCode-native control where possible
+- keep the control contract small and explicit
+
+Status:
+- minimal status/send/wait controller implemented
+
+Current commands:
+- `node ./src/index.js status`
+- `node ./src/index.js send 'your prompt here'`
+- `node ./src/index.js wait`
+
+Behavior:
+- talks to OpenCode over HTTP at `http://127.0.0.1:4096` by default
+- override with `OPENCODE_BASE_URL`

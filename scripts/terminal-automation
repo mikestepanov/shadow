@@ -2,6 +2,8 @@
 # YO — DO NOT MODIFY THIS FILE UNLESS EXPLICITLY REQUESTED BY THE USER.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
 # Terminal Automation guardrail utility
 # Enforces dual control-plane checks:
 # 1) systemd user timers (manual-*/agent-*)
@@ -100,6 +102,13 @@ scope_prci() {
 
 unit_active() { systemctl --user is-active "$1" 2>&1 || true; }
 unit_enabled() { systemctl --user is-enabled "$1" 2>&1 || true; }
+
+ensure_timer_installed() {
+  local unit="$1"
+  if [[ "$(unit_enabled "$unit")" == "not-found" ]]; then
+    "$SCRIPT_DIR/timers-install" "${unit%.timer}" >/dev/null
+  fi
+}
 
 cron_list_json() { openclaw cron list --all --json; }
 cron_job_id_by_name() {
@@ -311,6 +320,7 @@ execute_plan() {
   case "$action" in
     enable-manual)
       while IFS= read -r unit; do
+        ensure_timer_installed "$unit"
         systemctl --user enable "$unit" 2>/dev/null || true
         systemctl --user start "$unit" 2>/dev/null || true
       done < <(scope_units "$scope" "manual")

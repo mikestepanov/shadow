@@ -1,0 +1,8 @@
+{
+  "name": "shadow-opencode-controller",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "status": "node ./src/index.js status"
+  }
+}

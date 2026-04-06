@@ -1,0 +1,28 @@
+diff --git a/sound/soc/amd/yc/pci-acp6x.c b/sound/soc/amd/yc/pci-acp6x.c
+--- a/sound/soc/amd/yc/pci-acp6x.c
++++ b/sound/soc/amd/yc/pci-acp6x.c
+@@ -152,6 +152,7 @@ static int snd_acp6x_probe(struct pci_dev *pci,
+ 	switch (pci->revision) {
+ 	case 0x60:
+ 	case 0x6f:
++	case 0x62:
+ 		break;
+ 	default:
+ 		dev_dbg(&pci->dev, "acp6x pci device not found\n");
+diff --git a/sound/soc/amd/yc/acp6x-mach.c b/sound/soc/amd/yc/acp6x-mach.c
+--- a/sound/soc/amd/yc/acp6x-mach.c
++++ b/sound/soc/amd/yc/acp6x-mach.c
+@@ -249,6 +249,13 @@ static const struct dmi_system_id yc_acp_quirk_table[] = {
+ 		}
+ 	},
+ 	{
++		.driver_data = &acp6x_card,
++		.matches = {
++			DMI_MATCH(DMI_BOARD_VENDOR, "HP"),
++			DMI_MATCH(DMI_BOARD_NAME, "8E35"),
++		}
++	},
++	{
+ 		.driver_data = &acp6x_card,
+ 		.matches = {
+ 			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
