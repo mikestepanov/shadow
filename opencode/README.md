@@ -20,6 +20,14 @@ Current commands:
 - `node ./src/index.js safe-send 'your prompt here'`
 - `node ./src/index.js wait`
 
+Targeting options:
+- `--session <session-id>`
+- `--title <title substring>`
+
+Examples:
+- `node ./src/index.js status --title 'Greeting quick check-in'`
+- `node ./src/index.js safe-send --session ses_123 'continue'`
+
 Behavior:
 - talks to OpenCode over HTTP at `http://127.0.0.1:4096` by default
 - override with `OPENCODE_BASE_URL`
