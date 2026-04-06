@@ -24,6 +24,7 @@ Current commands:
 - `node ./src/index.js lane-run manual starthub --title 'Greeting quick check-in'`
 - `node ./src/index.js enqueue-lane manual starthub --title 'Greeting quick check-in'`
 - `node ./src/index.js run-queue`
+- `node ./src/index.js auto-cycle nixelo`
 
 Targeting options:
 - `--session <session-id>`
@@ -40,3 +41,4 @@ Behavior:
 - `safe-command` preflights the OpenCode command list before execution
 - `lane-run` applies small policy presets for `manual`, `agent`, and `prci` lanes
 - `enqueue-lane` and `run-queue` provide a tiny file-backed retry queue for deferred runs
+- `auto-cycle nixelo` reads the existing auto-mode gate and queues the next OpenCode lane instead of touching OpenClaw cron

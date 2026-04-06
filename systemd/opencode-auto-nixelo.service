@@ -1,0 +1,8 @@
+[Unit]
+Description=Run OpenCode auto-cycle for nixelo
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl auto-cycle nixelo
+TimeoutStartSec=120

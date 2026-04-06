@@ -45,6 +45,20 @@ function createJob(mode, repo, options = {}) {
   };
 }
 
+function sameTarget(left, right, field) {
+  return (left?.[field] || null) === (right?.[field] || null);
+}
+
+function findExistingJob(queue, candidate) {
+  return queue.find(
+    (job) =>
+      job.mode === candidate.mode &&
+      job.repo === candidate.repo &&
+      sameTarget(job, candidate, "title") &&
+      sameTarget(job, candidate, "sessionId"),
+  );
+}
+
 function retryDelayMs(attempts) {
   return Math.min(60000, 5000 * Math.max(1, attempts));
 }
@@ -53,6 +67,18 @@ export async function enqueueLane(mode, repo, options = {}) {
   const filePath = queuePath(options);
   const queue = await loadQueue(filePath);
   const job = createJob(mode, repo, options);
+
+  const existing = findExistingJob(queue, job);
+  if (existing) {
+    return {
+      ok: true,
+      queuePath: filePath,
+      job: existing,
+      queued: queue.length,
+      deduped: true,
+    };
+  }
+
   queue.push(job);
   await saveQueue(filePath, queue);
   return {
@@ -60,6 +86,7 @@ export async function enqueueLane(mode, repo, options = {}) {
     queuePath: filePath,
     job,
     queued: queue.length,
+    deduped: false,
   };
 }
 

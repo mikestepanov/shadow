@@ -1,4 +1,5 @@
 import { getControllerStatus } from "./status.js";
+import { runAutoCycle } from "./auto-mode.js";
 import { enqueueLane, runQueue } from "./queue.js";
 import { runLane } from "./lane-run.js";
 import { listLaneKeys } from "./lanes.js";
@@ -88,6 +89,13 @@ async function main() {
 
   if (command === "run-queue") {
     const result = await runQueue(options);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "auto-cycle") {
+    const [repo] = parsed.rest;
+    const result = await runAutoCycle(repo || "", options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     process.exit(result.ok ? 0 : 1);
   }
