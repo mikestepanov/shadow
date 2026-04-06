@@ -7,6 +7,7 @@ heartbeat-dispatch-state.json
 tools/automationctl/__pycache__/
 *.pyc
 scripts/*.log
+opencode/var/
 heartbeat-handoff-state.json
 heartbeat-report.md
 cli-rate-limit-state.json

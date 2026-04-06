@@ -1,0 +1,7 @@
+#!/run/current-system/sw/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+exec node "$REPO_DIR/opencode/src/index.js" "$@"

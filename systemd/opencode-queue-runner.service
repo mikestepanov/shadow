@@ -1,0 +1,8 @@
+[Unit]
+Description=Run OpenCode automation queue
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl run-queue
+TimeoutStartSec=120

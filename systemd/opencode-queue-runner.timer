@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OpenCode automation queue every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+Unit=opencode-queue-runner.service
+
+[Install]
+WantedBy=timers.target

@@ -1,4 +1,5 @@
 import { getControllerStatus } from "./status.js";
+import { enqueueLane, runQueue } from "./queue.js";
 import { runLane } from "./lane-run.js";
 import { listLaneKeys } from "./lanes.js";
 import { sendPrompt } from "./send.js";
@@ -76,6 +77,19 @@ async function main() {
   if (command === "lanes") {
     process.stdout.write(`${JSON.stringify(listLaneKeys(), null, 2)}\n`);
     process.exit(0);
+  }
+
+  if (command === "enqueue-lane") {
+    const [mode, repo] = parsed.rest;
+    const result = await enqueueLane(mode || "", repo || "", options);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "run-queue") {
+    const result = await runQueue(options);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.exit(result.ok ? 0 : 1);
   }
 
   console.error(`unknown command: ${command}`);
