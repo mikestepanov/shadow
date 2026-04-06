@@ -1,5 +1,6 @@
 import { getControllerStatus } from "./status.js";
 import { sendPrompt } from "./send.js";
+import { safeSendPrompt } from "./safe-send.js";
 import { waitUntilIdle } from "./wait.js";
 
 async function main() {
@@ -24,8 +25,15 @@ async function main() {
     process.exit(result.ok ? 0 : 1);
   }
 
-    console.error(`unknown command: ${command}`);
-    process.exit(2);
+  if (command === "safe-send") {
+    const text = process.argv.slice(3).join(" ");
+    const result = await safeSendPrompt(text);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  console.error(`unknown command: ${command}`);
+  process.exit(2);
 }
 
 await main();
