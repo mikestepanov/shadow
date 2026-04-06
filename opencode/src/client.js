@@ -52,12 +52,28 @@ export async function getSessionStatuses(options = {}) {
   return fetchJson("/session/status", options);
 }
 
+export async function listCommands(options = {}) {
+  return fetchJson("/command", options);
+}
+
 export async function listSessionMessages(sessionId, options = {}) {
   return fetchJson(`/session/${sessionId}/message?limit=${options.limit || 1}`, options);
 }
 
 export async function promptSessionAsync(sessionId, body, options = {}) {
   return fetchEmpty(`/session/${sessionId}/prompt_async`, {
+    ...options,
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function commandSession(sessionId, body, options = {}) {
+  return fetchJson(`/session/${sessionId}/command`, {
     ...options,
     method: "POST",
     headers: {

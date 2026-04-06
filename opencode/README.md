@@ -18,7 +18,10 @@ Current commands:
 - `node ./src/index.js status`
 - `node ./src/index.js send 'your prompt here'`
 - `node ./src/index.js safe-send 'your prompt here'`
+- `node ./src/index.js safe-command review`
 - `node ./src/index.js wait`
+- `node ./src/index.js lanes`
+- `node ./src/index.js lane-run manual starthub --title 'Greeting quick check-in'`
 
 Targeting options:
 - `--session <session-id>`
@@ -32,3 +35,5 @@ Behavior:
 - talks to OpenCode over HTTP at `http://127.0.0.1:4096` by default
 - override with `OPENCODE_BASE_URL`
 - `safe-send` waits through `busy`, stops on `waiting_user`, and sends only when safe
+- `safe-command` preflights the OpenCode command list before execution
+- `lane-run` applies small policy presets for `manual`, `agent`, and `prci` lanes

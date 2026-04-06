@@ -1,0 +1,84 @@
+import { getLaneConfig } from "./lanes.js";
+import { safeRunCommand } from "./safe-command.js";
+import { safeSendPrompt } from "./safe-send.js";
+import { getControllerStatus } from "./status.js";
+
+async function finalizeAccepted(result, options = {}) {
+  if (!result.ok) {
+    return result;
+  }
+
+  const status = await getControllerStatus(options);
+  return {
+    ...result,
+    dispatch: status.ok ? status.state : "unknown",
+    accepted: true,
+  };
+}
+
+async function dispatchAcceptedLane(lane, runOptions) {
+  const current = await getControllerStatus(runOptions);
+  if (!current.ok) {
+    return current;
+  }
+
+  if (current.state === "busy" || current.state === "waiting_user") {
+    return {
+      ok: false,
+      state: current.state,
+      sessionId: current.sessionId,
+      title: current.title,
+      accepted: false,
+      deferred: true,
+      error: `Lane deferred because session is ${current.state}`,
+    };
+  }
+
+  if (lane.action === "prompt") {
+    const result = await safeSendPrompt(lane.prompt, runOptions);
+    return finalizeAccepted(result, runOptions);
+  }
+
+  if (lane.action === "command") {
+    const result = await safeRunCommand(lane.command, lane.arguments || [], runOptions);
+    return finalizeAccepted(result, runOptions);
+  }
+
+  return {
+    ok: false,
+    error: `Unsupported lane action ${lane.action}`,
+  };
+}
+
+export async function runLane(mode, repo, options = {}) {
+  const lane = getLaneConfig(mode, repo);
+  if (!lane) {
+    return {
+      ok: false,
+      error: `Unknown lane ${mode}:${repo}`,
+    };
+  }
+
+  const runOptions = {
+    ...options,
+    title: options.title || lane.title,
+    timeoutMs: options.timeoutMs || lane.timeoutMs,
+  };
+
+  if (lane.completion === "accepted") {
+    return dispatchAcceptedLane(lane, runOptions);
+  }
+
+  if (lane.action === "prompt") {
+    return safeSendPrompt(lane.prompt, runOptions);
+  }
+
+  if (lane.action === "command") {
+    return safeRunCommand(lane.command, lane.arguments || [], runOptions);
+  }
+
+  return {
+    ok: false,
+    error: `Unsupported lane action ${lane.action}`,
+  };
+}
