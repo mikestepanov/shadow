@@ -3,6 +3,6 @@ Description=Sync nixos-config and axon repos
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/.openclaw/workspace/scripts/sync-repos
-StandardOutput=append:/home/mikhail/.openclaw/workspace/scripts/sync.log
-StandardError=append:/home/mikhail/.openclaw/workspace/scripts/sync.log
+ExecStart=/home/mikhail/Desktop/shadow/scripts/sync-repos
+StandardOutput=append:/home/mikhail/Desktop/shadow/scripts/sync.log
+StandardError=append:/home/mikhail/Desktop/shadow/scripts/sync.log

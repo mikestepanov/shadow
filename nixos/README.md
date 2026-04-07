@@ -18,12 +18,12 @@ Shared NixOS configuration synced across devices via GitHub.
 After running `nxs`, these shortcuts become available:
 
 - **`ghc`** - Run GitHub Copilot CLI with all tools allowed
-- **`cron`** - Open automation control panel (Textual TUI) for OpenClaw timers/crons
+- **`cron`** - Open automation control panel (Textual TUI) for OpenCode crons and local timers
 - **`nxs`** - Sync config to `/etc/nixos/` and rebuild system
 
 `cron` runs:
 ```bash
-nix-shell -p python313Packages.textual --run '~/Desktop/axon/scripts/automationctl'
+nix-shell -p python313Packages.textual --run '~/Desktop/shadow/scripts/automationctl'
 ```
 
 ## Setup on a New Machine

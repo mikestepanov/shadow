@@ -61,7 +61,7 @@ recovery:
 - ❌ **NEVER** create, close, or merge PRs
 - ❌ **NEVER** run `systemctl` start/stop/enable/disable directly
 - ❌ **NEVER** run `gh pr create/close/merge`
-- ❌ **NEVER** run nudge scripts manually (`tmux-manual-work-ping`)
+- ❌ **NEVER** run manual dispatch scripts directly (`scripts/opencodectl manual-ping <repo>`)
 - ❌ **NEVER** send `Escape`, `/stop`, `C-c`, or any input to tmux panes
 - ❌ **NEVER** run `scripts/opencodectl cron enable/disable` directly
 - ❌ **NEVER** enable/disable/start/stop nixelo manual timer — Mikhail handles the auto-nixelo lifecycle manually. If nixelo timer is off, it's off on purpose. Do NOT re-enable it.
@@ -78,7 +78,7 @@ recovery:
 
 ### What watcher checks (so heartbeat doesn't need to):
 - Timer/service health (stuck in `activating` state)
-- Nudge delivery patterns (SENT vs NOOP, last SENT age)
+- Manual dispatch delivery patterns (SENT vs NOOP, last SENT age)
 - Process tree (phantom background terminals)
 - Commit freshness per repo
 - Conflict detection (manual vs PR-CI overlap)
@@ -245,7 +245,7 @@ tmux send-keys -t nixelo Enter
 
 # 3) verify Codex is ready again via pane_current_command, then enable timer/cron
 ```
-Hard stop: if tmux is missing or Codex is not ready, do not enable anything. Report failure and wait for explicit user direction.
+Hard stop: if the required OpenCode session cannot be bootstrapped or Codex is not ready, do not enable anything. Report failure and wait for explicit user direction.
 
 ### 2.5) Nudge delivery cross-check (MANDATORY when manual timer is ON)
 
@@ -257,7 +257,7 @@ journalctl --user -u manual-terminal-<repo>.service --since "-30min" --no-pager 
 
 **Hard rules:**
 1. If terminal appears idle (at `›` prompt) but last 30min of journal shows only `NOOP:terminal-busy` → **BUG in busy detection**. Alert immediately and investigate `busy_reason` output.
-2. If terminal is idle and last SENT is >30min ago → something is wrong. Run the nudge script manually to test: `~/Desktop/shadow/scripts/tmux-manual-work-ping <session>`
+2. If terminal is idle and last SENT is >30min ago → something is wrong. Run the manual dispatch path manually to test: `~/Desktop/shadow/scripts/opencodectl manual-ping <repo>`
 3. Never report "all systems operational" or `HEARTBEAT_OK` when the timer is ON but zero nudges are being delivered to an idle terminal. This is a **hard gate** — any active timer with 0 SENT in last 10 minutes on an idle terminal MUST be flagged, never ignored.
 4. **Agnostic busy-detection law (added 2026-03-30):** busy detection must work uniformly across ALL terminal lanes/sessions and CLI UIs (cdx/cc/other). Queue markers, pending outbound messages, and background-terminal waits are BUSY regardless of prompt shape or provider-specific UI text. Never rely on one model’s exact wording.
 
