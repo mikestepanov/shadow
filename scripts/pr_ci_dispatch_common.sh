@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
+
 STATE_FILE="$HOME/Desktop/shadow/heartbeat-dispatch-state.json"
 MAX_IDENTICAL="${MAX_IDENTICAL:-3}"
 GH="$(command -v gh)"
@@ -120,8 +122,13 @@ send_command() {
 
 alert_telegram() {
   local msg="$1"
-  # Use openclaw message to send to Telegram
-  openclaw message send --channel telegram --target 780599199 --message "$msg" 2>/dev/null || true
+  local token="${TELEGRAM_BOT_TOKEN:-}"
+  [[ -n "$token" ]] || return 0
+
+  curl -fsS -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+    -d "chat_id=780599199" \
+    --data-urlencode "text=${msg}" \
+    >/dev/null 2>&1 || true
 }
 
 # ── done-done detection ──────────────────────────────────────────────────────
@@ -169,7 +176,7 @@ check_done_done() {
   fi
 
   # 3. All done — disable cron and notify
-  openclaw cron disable "$cron_id" 2>/dev/null || true
+  "$OPENCODECTL" cron disable "$cron_id" 2>/dev/null || true
   alert_telegram "✅ ${REPO_NAME} PR #${pr_number} is done-done! All CI green, no unpushed commits, no unaddressed comments. PR-CI cron disabled. Ready for human review/merge."
   echo "DONE: PR #${pr_number} is complete — cron disabled, Telegram notified"
   return 0

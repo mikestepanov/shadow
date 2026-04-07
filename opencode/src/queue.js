@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
+import { runDueCronJobs } from "./cron.js";
+import { resolveRepoPath } from "./paths.js";
 import { runLane } from "./lane-run.js";
 
-const DEFAULT_QUEUE_PATH = resolve(process.cwd(), "var/opencode-queue.json");
+const DEFAULT_QUEUE_PATH = resolveRepoPath("opencode", "var", "opencode-queue.json");
 
 function queuePath(options = {}) {
   return options.queuePath || process.env.OPENCODE_QUEUE_PATH || DEFAULT_QUEUE_PATH;
@@ -91,6 +93,7 @@ export async function enqueueLane(mode, repo, options = {}) {
 }
 
 export async function runQueue(options = {}) {
+  const cron = await runDueCronJobs(options);
   const filePath = queuePath(options);
   const queue = await loadQueue(filePath);
   const now = Date.now();
@@ -126,6 +129,7 @@ export async function runQueue(options = {}) {
   return {
     ok: true,
     queuePath: filePath,
+    cron,
     processed: results.length,
     remaining: remaining.length,
     results,

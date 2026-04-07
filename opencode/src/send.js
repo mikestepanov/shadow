@@ -18,6 +18,7 @@ export async function sendPrompt(text, options = {}) {
     session.id,
     {
       parts: [{ type: "text", text }],
+      ...(typeof options.model === "string" ? { model: options.model } : {}),
     },
     options,
   );

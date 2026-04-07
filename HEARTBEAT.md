@@ -63,14 +63,14 @@ recovery:
 - ❌ **NEVER** run `gh pr create/close/merge`
 - ❌ **NEVER** run nudge scripts manually (`tmux-manual-work-ping`)
 - ❌ **NEVER** send `Escape`, `/stop`, `C-c`, or any input to tmux panes
-- ❌ **NEVER** run `openclaw cron enable/disable` directly
+- ❌ **NEVER** run `scripts/opencodectl cron enable/disable` directly
 - ❌ **NEVER** enable/disable/start/stop nixelo manual timer — Mikhail handles the auto-nixelo lifecycle manually. If nixelo timer is off, it's off on purpose. Do NOT re-enable it.
 
 ### Heartbeat AI MAY:
 - ✅ Read watcher state file
-- ✅ Run `openclaw cron list` to check cron health
-- ✅ Run `openclaw cron edit <id> --model <model>` to fix broken cron models
-- ✅ Run `openclaw cron run <id>` to force-run a broken cron
+- ✅ Run `scripts/opencodectl cron list --all --json` to check cron health
+- ✅ Run `scripts/opencodectl cron edit <id> --model <model>` to fix cron model routing
+- ✅ Run `scripts/opencodectl cron run <id>` to force-run a broken cron
 - ✅ Run `bash ~/Desktop/shadow/scripts/auto_nixelo_cycle.sh` (read-only check)
 - ✅ Send alerts via `message` tool to Telegram
 - ✅ Use `terminal-automation plan/execute` flow (with user APPROVE)
@@ -87,7 +87,7 @@ recovery:
 
 ### Alert escalation:
 When watcher reports alerts, heartbeat MUST attempt to fix them using allowed actions first:
-- Cron model failures → switch model via `openclaw cron edit`
+- Cron model failures → switch model via `scripts/opencodectl cron edit`
 - Stuck services → `kill` the hung PID, `systemctl --user reset-failed`
 - Nixelo manual timer not re-enabled after auto-cycle → re-enable via `terminal-automation plan/execute`
 - IDLE_NO_NUDGE on idle terminal → diagnose guard bug, fix if possible
@@ -112,20 +112,20 @@ Only alert via Telegram when ALL of these are true:
 Every heartbeat pass — whether triggered by cron or interactive session — MUST verify the heartbeat cron job itself is healthy:
 
 ```bash
-openclaw cron list   # check heartbeat job status + consecutiveErrors
+scripts/opencodectl cron list --all --json   # check heartbeat job status + consecutiveErrors
 ```
 
 **Hard rules:**
 1. If heartbeat cron (or ANY other cron) shows `status: error` with `consecutiveErrors >= 3`, diagnose and fix in-cycle:
    - Check the error message (rate limit, model not allowed, timeout, etc.)
-   - If rate-limited: switch model to an available provider (`openclaw cron edit <id> --model <fallback>`)
-   - If model not allowed: add to allowlist in `openclaw.json` and restart gateway
-   - Force-run after fix to verify: `openclaw cron run <id>`
+   - If rate-limited: switch model to an available provider (`scripts/opencodectl cron edit <id> --model <fallback>`)
+   - If model routing is wrong: update the OpenCode cron job model or OpenCode provider defaults
+   - Force-run after fix to verify: `scripts/opencodectl cron run <id>`
    - Confirm `status: ok` before proceeding with the rest of the heartbeat
 2. If heartbeat cron is `disabled` unexpectedly, re-enable it.
 3. If the cron hasn't run in >10 minutes (check `Last` column), force-run it.
 4. **The interactive session (you talking to the user) is the backup heartbeat.** If the cron can't run, YOU do the work. Don't treat the cron as someone else's problem.
-5. Current fallback model for heartbeat: `github-copilot/gemini-3-pro-preview` (immune to terminal API contention).
+5. Current runtime: OpenCode cron + `opencode.service` on `127.0.0.1:4096`.
 
 ### Conflict detection (MANDATORY, runs after self-health check)
 
@@ -134,7 +134,7 @@ Before any repo-level checks, verify no repo has BOTH manual/agent AND PR-CI aut
 ```bash
 # Check all automation layers
 systemctl --user is-active manual-terminal-nixelo.timer manual-terminal-starthub.timer 2>&1
-openclaw cron list --all 2>&1  # look for pr-ci-* enabled status
+scripts/opencodectl cron list --all 2>&1  # look for pr-ci-* enabled status
 ```
 
 **Hard rules:**
@@ -296,7 +296,7 @@ After gate passes:
 
 ### 3.1) PR-CI done-done auto-disable (added 2026-03-17)
 
-**Problem this solves:** The PR-CI cron agent (Gemini isolated session) cannot run `openclaw cron disable` — it doesn't actually execute the dispatch script, just summarizes. So the heartbeat (main agent with full exec access) owns done-done detection and cron shutdown.
+**Problem this solves:** The PR-CI cron lane does not own the done-done shutdown decision. Heartbeat owns done-done detection and OpenCode cron shutdown.
 
 **Runs every heartbeat cycle** for each repo where `pr-ci-*` cron is enabled:
 

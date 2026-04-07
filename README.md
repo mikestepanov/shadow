@@ -1,6 +1,6 @@
 # Axon
 
-`axon` is the local OpenClaw workspace and support repo.
+`axon` is the local OpenCode workspace and support repo.
 
 Canonical local checkout:
 
@@ -19,11 +19,11 @@ What lives here:
 Observed control planes:
 
 - systemd user units: `watcher.timer`, `manual-terminal-*`, `agent-terminal-*`
-- OpenClaw cron jobs: `Heartbeat`, `pr-ci-nixelo`, `pr-ci-starthub`
+- OpenCode cron jobs: `Heartbeat`, `pr-ci-nixelo`, `pr-ci-starthub`
 
 Operational rule:
 
-- Keep the local OpenClaw workspace, policy, and supporting scripts in `axon`
+- Keep the local OpenCode workspace, policy, and supporting scripts in `axon`
 - Keep runtime state files local and ignored by git
 - Do not duplicate Heartbeat logic outside `HEARTBEAT.md`
 
@@ -34,8 +34,9 @@ Useful commands:
 - `bash ~/Desktop/shadow/scripts/healthcheck.sh` — run health check directly
 - `bash ~/Desktop/shadow/scripts/recent.sh` — print the current watcher summary
 - `nix-shell -p python313Packages.textual --run '~/Desktop/shadow/scripts/automationctl'` — open the automation control TUI
+- `systemctl --user status opencode.service` — inspect the live OpenCode server
 - `systemctl --user start watcher.service` — force a fresh watcher snapshot
-- `openclaw cron list --all` — inspect Heartbeat and PR-CI cron status
+- `scripts/opencodectl cron list --all` — inspect Heartbeat and PR-CI cron status
 
 Normal healthy state:
 

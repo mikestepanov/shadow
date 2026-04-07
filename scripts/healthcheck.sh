@@ -4,6 +4,7 @@ set -euo pipefail
 STATE_FILE="$HOME/Desktop/shadow/watcher-state.json"
 SUMMARY_FILE="$HOME/Desktop/shadow/health-summary.json"
 MAX_AGE_S="${AXON_MAX_STATE_AGE_S:-300}"
+OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
 
 declare -A EXPECTED_UNIT_FILE_STATE=(
   [watcher.timer]="enabled"
@@ -133,7 +134,7 @@ PY
   printf 'Summary starthub mode=%s alerts=%s manual=%s agent=%s\n' "$starthub_mode" "$starthub_alerts" "$starthub_manual" "$starthub_agent"
 fi
 
-cron_summary="$(openclaw cron list --all --json 2>/dev/null | python3 -c 'import json, sys
+cron_summary="$($OPENCODECTL cron list --all --json 2>/dev/null | python3 -c 'import json, sys
 data = json.load(sys.stdin)
 jobs = {job.get("name"): job for job in data.get("jobs", [])}
 for name in ("Heartbeat", "pr-ci-nixelo", "pr-ci-starthub"):

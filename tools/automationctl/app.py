@@ -20,6 +20,7 @@ def timer_unit_name(unit: str) -> str:
 
 ROOT = Path(__file__).resolve().parents[2]
 TERMINAL_AUTOMATION_SCRIPT = ROOT / "scripts" / "terminal-automation"
+OPENCODECTL = ROOT / "scripts" / "opencodectl"
 CLI_PREF_FILE = ROOT / "terminal-cli-preference.json"
 AUTO_NIXELO_STATE_FILE = ROOT / "auto-nixelo-enabled.json"
 
@@ -95,35 +96,33 @@ def _parse_interval_from_unit_file(unit: str) -> str | None:
     return None
 
 
-def parse_crons(raw: str) -> dict[str, tuple[str, str, str]]:
-    """Returns {name: (cron_id, status, schedule)}."""
-    statuses: dict[str, tuple[str, str, str]] = {}
-    for line in raw.splitlines():
-        line = line.rstrip()
-        if not line or line.startswith("ID") or line.startswith("-"):
-            continue
+def load_cron_map() -> dict[str, tuple[str, str, str | None]]:
+    code, output = run_command([str(OPENCODECTL), "cron", "list", "--all", "--json"])
+    if code != 0:
+        return {}
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return {}
 
-        # Data rows are: <id> <name><2+sp><schedule><2+sp>...<status>...
-        m = re.match(r"^([0-9a-f-]{36})\s+(.+)$", line)
-        if not m:
+    jobs = payload.get("jobs", []) if isinstance(payload, dict) else []
+    statuses: dict[str, tuple[str, str, str | None]] = {}
+    for job in jobs:
+        if not isinstance(job, dict):
             continue
-
-        cron_id = m.group(1)
-        rest = m.group(2)
-        cols = re.split(r"\s{2,}", rest)
-        if len(cols) < 6:
+        name = str(job.get("name", "")).strip()
+        cron_id = str(job.get("id", "")).strip()
+        if not name or not cron_id:
             continue
-
-        name = cols[0].strip()
-        schedule = cols[1].strip()
-        status = cols[4].strip()
+        status = str(job.get("status", "unknown")).strip()
+        schedule_value = job.get("scheduleText")
+        schedule = str(schedule_value) if isinstance(schedule_value, str) else None
         statuses[name] = (cron_id, status, schedule)
     return statuses
 
 
 def load_items() -> list[ManagedItem]:
-    cron_code, cron_raw = run_command(["openclaw", "cron", "list", "--all"])
-    cron_map = parse_crons(cron_raw if cron_code == 0 else "")
+    cron_map = load_cron_map()
 
     timer_units = [
         ("manual-terminal-nixelo.timer", "nixelo"),
@@ -472,7 +471,7 @@ class AutomationCtlApp(App[None]):
 
         if item.item_type == "cron" and item.cron_id:
             def _do() -> None:
-                cmd = ["openclaw", "cron", "edit", item.cron_id, "--every", new_val]
+                cmd = [str(OPENCODECTL), "cron", "edit", item.cron_id, "--every", new_val]
                 code, output = run_command(cmd)
                 marker = "OK" if code == 0 else "FAILED"
                 result = f"{marker}: {item.name} interval {current} → {new_val}"
@@ -613,7 +612,7 @@ class AutomationCtlApp(App[None]):
 
     def _set_cron_enabled(self, cron_id: str, enable: bool) -> str:
         action = "enable" if enable else "disable"
-        cmd = ["openclaw", "cron", action, cron_id]
+        cmd = [str(OPENCODECTL), "cron", action, cron_id]
         code, output = run_command(cmd)
         marker = "OK" if code == 0 else "FAILED"
         return f"{marker}\n$ {' '.join(shlex.quote(p) for p in cmd)}\n\n{output}"

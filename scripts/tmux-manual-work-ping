@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTO_NIXELO_STATE="${SCRIPT_DIR}/auto-nixelo-enabled.json"
+OPENCODECTL="$SCRIPT_DIR/scripts/opencodectl"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
@@ -176,18 +177,11 @@ if [[ "$done_count" -ge 2 && "$open_items" -eq 0 ]]; then
   echo "  disabled ${timer_unit}"
 
   # 2) Enable PR-CI cron
-  openclaw cron enable "$pr_ci_cron_id" 2>/dev/null || true
+  "$OPENCODECTL" cron enable "$pr_ci_cron_id" 2>/dev/null || true
   echo "  enabled pr-ci cron ${pr_ci_cron_id}"
 
   # 3) Notify via Telegram
-  openclaw cron add \
-    --name "done-loop-${session}" \
-    --at "+0m" \
-    --message "🔄 ${session}: Terminal reported done ${done_count} times (done-loop detected). Disabled manual timer, enabled PR-CI." \
-    --session isolated \
-    --announce --channel telegram --to 780599199 \
-    --delete-after-run \
-    --best-effort-deliver 2>/dev/null || true
+  openclaw message send --channel telegram --to 780599199 --message "🔄 ${session}: Terminal reported done ${done_count} times (done-loop detected). Disabled manual timer, enabled PR-CI." 2>/dev/null || true
 
   exit 0
 elif [[ "$done_count" -ge 2 && "$open_items" -gt 0 ]]; then
@@ -208,18 +202,11 @@ if [[ "$open_items" -eq 0 ]]; then
   echo "  disabled ${timer_unit}"
 
   # 2) Enable PR-CI cron
-  openclaw cron enable "$pr_ci_cron_id" 2>/dev/null || true
+  "$OPENCODECTL" cron enable "$pr_ci_cron_id" 2>/dev/null || true
   echo "  enabled pr-ci cron ${pr_ci_cron_id}"
 
   # 3) Notify via Telegram
-  openclaw cron add \
-    --name "TODO-done-${session}" \
-    --at "+0m" \
-    --message "🔄 ${session}: TODO is done (${todo_file}). Disabled manual timer, enabled PR-CI. Transition complete." \
-    --session isolated \
-    --announce --channel telegram --to 780599199 \
-    --delete-after-run \
-    --best-effort-deliver 2>/dev/null || true
+  openclaw message send --channel telegram --to 780599199 --message "🔄 ${session}: TODO is done (${todo_file}). Disabled manual timer, enabled PR-CI. Transition complete." 2>/dev/null || true
 
   exit 0
 fi

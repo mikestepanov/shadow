@@ -1,4 +1,5 @@
 import { getControllerStatus } from "./status.js";
+import { editCronJob, formatCronList, listCronJobs, runCronJob, setCronEnabled } from "./cron.js";
 import { runAutoCycle } from "./auto-mode.js";
 import { enqueueLane, runQueue } from "./queue.js";
 import { runLane } from "./lane-run.js";
@@ -21,6 +22,24 @@ function parseArgs(argv) {
     }
     if (arg === "--title") {
       options.title = argv[i + 1] || "";
+      i += 1;
+      continue;
+    }
+    if (arg === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (arg === "--all") {
+      options.all = true;
+      continue;
+    }
+    if (arg === "--every") {
+      options.every = argv[i + 1] || "";
+      i += 1;
+      continue;
+    }
+    if (arg === "--model") {
+      options.model = argv[i + 1] || "";
       i += 1;
       continue;
     }
@@ -98,6 +117,54 @@ async function main() {
     const result = await runAutoCycle(repo || "", options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "cron") {
+    const [subcommand, identifier] = parsed.rest;
+
+    if (subcommand === "list") {
+      const result = await listCronJobs(options);
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        process.stdout.write(`${formatCronList(result)}\n`);
+      }
+      process.exit(result.ok ? 0 : 1);
+    }
+
+    if (subcommand === "enable") {
+      const result = await setCronEnabled(identifier || "", true, options);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exit(result.ok ? 0 : 1);
+    }
+
+    if (subcommand === "disable") {
+      const result = await setCronEnabled(identifier || "", false, options);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exit(result.ok ? 0 : 1);
+    }
+
+    if (subcommand === "edit") {
+      const result = await editCronJob(
+        identifier || "",
+        {
+          ...(options.every ? { every: options.every } : {}),
+          ...(options.model ? { model: options.model } : {}),
+        },
+        options,
+      );
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exit(result.ok ? 0 : 1);
+    }
+
+    if (subcommand === "run") {
+      const result = await runCronJob(identifier || "", options);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exit(result.ok ? 0 : 1);
+    }
+
+    console.error(`unknown cron subcommand: ${subcommand || ""}`);
+    process.exit(2);
   }
 
   console.error(`unknown command: ${command}`);

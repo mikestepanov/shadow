@@ -3,11 +3,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+OPENCODECTL="$SCRIPT_DIR/opencodectl"
 
 # Terminal Automation guardrail utility
 # Enforces dual control-plane checks:
 # 1) systemd user timers (manual-*/agent-*)
-# 2) OpenClaw cron jobs (pr-ci-*)
+# 2) OpenCode cron jobs (pr-ci-*)
 
 SYSTEMD_UNITS=(
   manual-terminal-nixelo.timer
@@ -110,7 +111,7 @@ ensure_timer_installed() {
   fi
 }
 
-cron_list_json() { openclaw cron list --all --json; }
+cron_list_json() { "$OPENCODECTL" cron list --all --json; }
 cron_job_id_by_name() {
   local name="$1"
   cron_list_json | node -e 'const fs=require("fs"); const n=process.argv[1]; const data=JSON.parse(fs.readFileSync(0,"utf8")); const jobs=Array.isArray(data)?data:(data.jobs||[]); const row=jobs.find((j)=>j.name===n); if(row) process.stdout.write(row.id);' "$name"
@@ -130,7 +131,7 @@ print_status() {
   done < <(scope_units all)
 
   echo
-  echo "== AI-powered Terminal Automation (OpenClaw cron) =="
+  echo "== AI-powered Terminal Automation (OpenCode cron) =="
   while IFS= read -r name; do
     local id st
     id="$(cron_job_id_by_name "$name")"
@@ -179,12 +180,12 @@ set_off() {
     systemctl --user disable "$unit" 2>/dev/null || true
   done < <(scope_units "$scope")
 
-  # OpenClaw cron plane
+  # OpenCode cron plane
   while IFS= read -r name; do
     local id
     id="$(cron_job_id_by_name "$name")"
     if [[ -n "$id" ]]; then
-      openclaw cron disable "$id" >/dev/null
+      "$OPENCODECTL" cron disable "$id" >/dev/null
     fi
   done < <(scope_prci "$scope")
 
@@ -336,7 +337,7 @@ execute_plan() {
         local id
         id="$(cron_job_id_by_name "$name")"
         if [[ -n "$id" ]]; then
-          openclaw cron enable "$id" >/dev/null
+          "$OPENCODECTL" cron enable "$id" >/dev/null
         fi
       done < <(scope_prci "$scope")
       ;;
@@ -345,7 +346,7 @@ execute_plan() {
         local id
         id="$(cron_job_id_by_name "$name")"
         if [[ -n "$id" ]]; then
-          openclaw cron disable "$id" >/dev/null
+          "$OPENCODECTL" cron disable "$id" >/dev/null
         fi
       done < <(scope_prci "$scope")
       ;;

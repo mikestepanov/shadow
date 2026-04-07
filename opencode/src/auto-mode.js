@@ -1,15 +1,15 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { enqueueLane } from "./queue.js";
+import { resolveRepoPath } from "./paths.js";
 
 const execFileAsync = promisify(execFile);
 
 const AUTO_CONFIG = {
   nixelo: {
-    gateFile: resolve(process.cwd(), "../auto-nixelo-enabled.json"),
-    repoPath: resolve(process.env.HOME || "/home/mikhail", "Desktop/nixelo"),
+    gateFile: resolveRepoPath("auto-nixelo-enabled.json"),
+    repoPath: resolveRepoPath("..", "nixelo"),
     todoFile: "todos-hot/README.md",
   },
 };

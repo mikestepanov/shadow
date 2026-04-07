@@ -2,8 +2,9 @@
 set -euo pipefail
 
 STATE_FILE="$HOME/Desktop/shadow/watcher-state.json"
+OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
 
-printf 'OpenClaw recent\n'
+printf 'OpenCode recent\n'
 
 if [[ ! -f "$STATE_FILE" ]]; then
   printf 'missing watcher state: %s\n' "$STATE_FILE"
@@ -43,10 +44,12 @@ for repo_name in ('nixelo', 'starthub'):
     )
 PY
 
-heartbeat_line="$(openclaw cron list --all 2>/dev/null | python3 -c 'import sys
-for line in sys.stdin:
-    if "Heartbeat" in line:
-        print(" ".join(line.split()))
+heartbeat_line="$($OPENCODECTL cron list --all --json 2>/dev/null | python3 -c 'import json, sys
+payload = json.load(sys.stdin)
+jobs = payload.get("jobs", []) if isinstance(payload, dict) else []
+for job in jobs:
+    if job.get("name") == "Heartbeat":
+        print(f"{job.get('id')} {job.get('name')} {job.get('scheduleText')} status={job.get('status')}")
         break')"
 
 if [[ -n "$heartbeat_line" ]]; then

@@ -58,6 +58,7 @@ export async function safeRunCommand(command, argumentsList = [], options = {}) 
     {
       command,
       arguments: argumentText,
+      ...(typeof options.model === "string" ? { model: options.model } : {}),
     },
     options,
   );

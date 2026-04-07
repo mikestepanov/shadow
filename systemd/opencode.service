@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenCode headless server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mikhail/Desktop/shadow
+EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
+ExecStart=/run/current-system/sw/bin/opencode serve --hostname 127.0.0.1 --port 4096
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

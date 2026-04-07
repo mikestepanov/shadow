@@ -16,7 +16,13 @@ MANUAL_TIMER="manual-terminal-nixelo.timer"
 TELEGRAM_TO="780599199"
 
 send_telegram() {
-  openclaw message send --channel telegram --to "$TELEGRAM_TO" --message "$1" 2>/dev/null || true
+  local token="${TELEGRAM_BOT_TOKEN:-}"
+  [[ -n "$token" ]] || return 0
+
+  curl -fsS -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+    -d "chat_id=${TELEGRAM_TO}" \
+    --data-urlencode "text=$1" \
+    >/dev/null 2>&1 || true
 }
 
 # --- Phase 1: Generic done-done + merge ---

@@ -7,6 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="$HOME/Desktop/shadow/watcher-state.json"
+OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EPOCH=$(date +%s)
 
@@ -175,7 +176,7 @@ cron_health() {
   local cron_name="$1"
   # Search cron list output for the cron by name
   local line
-  line=$(openclaw cron list --all 2>/dev/null | grep -i "$cron_name" || echo "")
+  line=$($OPENCODECTL cron list --all 2>/dev/null | grep -i "$cron_name" || echo "")
   if [[ -z "$line" ]]; then
     echo "not_found"
     return

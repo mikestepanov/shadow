@@ -1,6 +1,6 @@
 # MEMORY.md
 
-This file is the compressed current-truth memory for the local OpenClaw workspace.
+This file is the compressed current-truth memory for the local OpenCode workspace.
 
 Use this for:
 - stable operating facts
@@ -47,7 +47,7 @@ Do not use this file as a full incident archive. Historical details live in `mem
 - Never use tmux text injection like `clear` / `exit` into `cc` or `cdx` panes.
 - Treat terminal automation as dual-plane:
   - systemd timers/services
-  - OpenClaw cron jobs
+  - OpenCode cron jobs
 - `OFF` means fully off across both planes and no active worker behavior.
 
 ## Working Preferences

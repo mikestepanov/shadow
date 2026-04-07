@@ -19,6 +19,8 @@
 
 set -euo pipefail
 
+OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
+
 REPO="${1:-}"
 
 if [[ -z "$REPO" ]]; then
@@ -51,11 +53,17 @@ cd "$REPO_DIR"
 # --- Helpers ---
 
 send_telegram() {
-  openclaw message send --channel telegram --to "$TELEGRAM_TO" --message "$1" 2>/dev/null || true
+  local token="${TELEGRAM_BOT_TOKEN:-}"
+  [[ -n "$token" ]] || return 0
+
+  curl -fsS -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+    -d "chat_id=${TELEGRAM_TO}" \
+    --data-urlencode "text=$1" \
+    >/dev/null 2>&1 || true
 }
 
 # --- Check if PR-CI is enabled ---
-if ! openclaw cron list --all 2>/dev/null | grep -q "pr-ci-$REPO.*ok"; then
+if ! "$OPENCODECTL" cron list --all 2>/dev/null | grep -q "pr-ci-$REPO.*ok"; then
   echo "SKIP:pr-ci-not-enabled"
   exit 0
 fi
@@ -85,7 +93,7 @@ pr_number=$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/nu
 echo "DONE-DONE:merging $REPO PR #$pr_number"
 
 # Disable PR-CI before merge attempt (will be restored on true failure)
-openclaw cron disable "$PR_CI_CRON_ID" 2>/dev/null
+"$OPENCODECTL" cron disable "$PR_CI_CRON_ID" 2>/dev/null
 
 # Merge
 if gh pr merge "$pr_number" --squash --delete-branch 2>/dev/null; then
@@ -98,7 +106,7 @@ else
     send_telegram "✅ ${REPO^} PR #$pr_number is merged (gh merge returned non-zero, recovered by state check). Continuing lifecycle."
   else
     # True failure: restore PR-CI so automation does not stall disabled.
-    openclaw cron enable "$PR_CI_CRON_ID" 2>/dev/null || true
+    "$OPENCODECTL" cron enable "$PR_CI_CRON_ID" 2>/dev/null || true
     send_telegram "⚠️ ${REPO^} PR #$pr_number done-done but merge failed (state=$pr_state_after_failure). PR-CI re-enabled; check manually."
     echo "ERROR:merge-failed state=$pr_state_after_failure"
     exit 1
