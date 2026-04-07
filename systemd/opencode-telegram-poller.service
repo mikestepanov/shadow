@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll Telegram and bridge messages into OpenCode
+After=network.target opencode.service
+Requires=opencode.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/mikhail/Desktop/shadow
+EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl telegram-poll

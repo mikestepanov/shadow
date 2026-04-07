@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll Telegram bridge every 15 seconds
+
+[Timer]
+OnCalendar=*-*-* *:*:00,15,30,45
+Persistent=true
+Unit=opencode-telegram-poller.service
+
+[Install]
+WantedBy=timers.target

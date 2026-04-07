@@ -5,6 +5,7 @@ import { enqueueLane, runQueue } from "./queue.js";
 import { runLane } from "./lane-run.js";
 import { listLaneKeys } from "./lanes.js";
 import { ensureManualSession, runManualPing } from "./session.js";
+import { pollTelegramOnce } from "./telegram.js";
 import { sendPrompt } from "./send.js";
 import { safeRunCommand } from "./safe-command.js";
 import { safeSendPrompt } from "./safe-send.js";
@@ -105,6 +106,12 @@ async function main() {
   if (command === "manual-ping") {
     const [repo] = parsed.rest;
     const result = await runManualPing(repo || "");
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "telegram-poll") {
+    const result = await pollTelegramOnce();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     process.exit(result.ok ? 0 : 1);
   }
