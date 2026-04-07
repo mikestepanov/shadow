@@ -92,21 +92,16 @@ Interpretation:
 ## Terminal enable checklist (mandatory)
 
 Before enabling any terminal cron/timer:
-1. Verify tmux session exists (`tmux has-session -t <session>`).
-2. Verify Codex is active/ready in that pane using current process (not banner text):
-   - `pane=$(tmux list-panes -t <session> -F '#{pane_id}' | head -n1)`
-   - `tmux display-message -p -t "$pane" '#{pane_current_command}'`
-   - READY only if process indicates active Codex (typically `node`), NOT `bash`.
-3. If Codex is not active, start it:
-   - `tmux send-keys -t <session> "cdx"`
-   - `tmux send-keys -t <session> Enter`
-4. Re-verify Codex readiness.
-5. Only then enable/start the cron/timer.
-6. HARD STOP: if tmux missing or Codex not ready, do not enable anything; report and wait.
-7. Scope lock: when executing a user-approved change, touch ONLY approved fields. Do not piggyback unrelated edits.
-8. Post-change output must list exact requested field deltas and confirm no extra edits.
-9. Handshake lock: no state-changing command may run until a PLAN is sent and an explicit APPROVE token is received.
-10. If a request asks to change one field (e.g., timeout), do not touch schedule/payload/model or any other field.
+1. Verify the OpenCode server is healthy: `scripts/opencodectl status`.
+2. Verify the target repo session is bootstrappable:
+   - `scripts/opencodectl ensure-session nixelo`
+   - `scripts/opencodectl ensure-session starthub`
+3. Only then enable/start the cron/timer.
+4. HARD STOP: if the required OpenCode session cannot be created or resumed, do not enable anything; report and wait.
+5. Scope lock: when executing a user-approved change, touch ONLY approved fields. Do not piggyback unrelated edits.
+6. Post-change output must list exact requested field deltas and confirm no extra edits.
+7. Handshake lock: no state-changing command may run until a PLAN is sent and an explicit APPROVE token is received.
+8. If a request asks to change one field (e.g., timeout), do not touch schedule/payload/model or any other field.
 11. Ambiguity hard-stop: if anything is unclear (even slightly), STOP and ask one clarifying question before any command.
 12. Fidelity lock: do exactly what was asked; do not add “helpful” extra changes.
 13. Request mapping lock: before any command, explicitly map requested items/fields and execute only those.

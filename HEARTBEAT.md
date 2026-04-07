@@ -6,7 +6,7 @@
 
 ## Smart Heartbeat Protocol (v2, added 2026-03-04)
 
-Goal: detect real progress, auto-recover stuck tmux sessions, and escalate only when needed.
+Goal: detect real progress, auto-recover stuck OpenCode-driven terminal automation, and escalate only when needed.
 
 ### Canonical naming/state note (2026-03-05)
 - Terminal automation naming was migrated.
@@ -82,7 +82,7 @@ recovery:
 - Process tree (phantom background terminals)
 - Commit freshness per repo
 - Conflict detection (manual vs PR-CI overlap)
-- Tmux session existence + pane state
+- OpenCode session dispatch health and any remaining tmux observational signals
 - Unit file existence
 
 ### Alert escalation:
@@ -95,7 +95,7 @@ When watcher reports alerts, heartbeat MUST attempt to fix them using allowed ac
 Only alert via Telegram when ALL of these are true:
 1. The same alert persists for **3+ consecutive watcher cycles** (6+ minutes)
 2. A verification subagent has confirmed the issue is real (not transient)
-3. The fix is outside allowed actions (tmux input, PR creation, etc.)
+3. The fix is outside allowed actions (manual dispatch mutation, PR creation, etc.)
 
 **Verification before alerting (MANDATORY):**
 - Spawn a subagent to independently verify: check process tree, check if content is actually changing, check if the terminal is between tasks
@@ -160,7 +160,7 @@ For each repo:
 ```bash
 cd <repo.path> && git log --oneline <repo.baseline>..HEAD | head -10
 cd <repo.path> && git log -1 --format="%h|%s|%ct"
-tmux capture-pane -t <repo.tmux> -p | tail -20
+journalctl --user -u manual-terminal-<repo>.service --since "-30min" --no-pager | tail -20
 ```
 
 ### 2) Activity score (smart classification)
@@ -169,18 +169,18 @@ tmux capture-pane -t <repo.tmux> -p | tail -20
 Heartbeat must be dynamic, not static. Do not assume OFF or ON from historical logs.
 
 ### Terminology + reporting lock (added 2026-03-06)
-Treat all tmux-related automation as Terminal Automation, split into two explicit groups:
+Treat terminal automation as two explicit groups:
 1. **Non-AI System Terminal Automation**: `manual-terminal-*`, `agent-terminal-*`
 2. **AI-powered Terminal Automation**: `pr-ci-*`
 
-Every heartbeat must report both groups explicitly, plus tmux readiness:
+Every heartbeat must report both groups explicitly, plus OpenCode session/manual dispatch readiness:
 - Non-AI System Terminal Automation state by unit
 - AI-powered Terminal Automation state by job
-- tmux readiness (`pane_current_command`) for `nixelo` and `starthub`
+- manual dispatch/session health for `nixelo` and `starthub`
 
 Determine expected intent in this order:
 1. Explicit user instruction in current chat (highest priority).
-2. Live runtime reality + recent outcomes (timers/sessions state, tmux output quality, commit freshness).
+2. Live runtime reality + recent outcomes (timers/session state, dispatch quality, commit freshness).
 3. Historical intervention notes (advisory only, lowest priority).
 
 Classify runtime mode each cycle:
@@ -192,8 +192,8 @@ Classify runtime mode each cycle:
 - Heartbeat is **AUTO-TRANSITION ENABLED** for terminal automation handoff.
 - Scope: it may switch between manual/agent terminal automation and PR-CI automation when handoff gates are satisfied.
 - Heartbeat must still avoid destructive actions (no destructive git commands).
-- **Nudge-vs-control hard gate (added 2026-03-09):** heartbeat/cron may send task nudges, but must not send control/mutation commands (`C-c`, mode switch, `cd`, stop/handoff directives, or PR slash-command dispatch) unless BOTH are verified in-cycle: (1) workflow is independently done, and (2) terminal process is truly idle.
-- **Global terminal-busy wait rule (added 2026-03-10):** for any terminal-touching cron/heartbeat path, if target tmux pane is actively working (not true paused/idle), return `NOOP:terminal-busy` and perform zero mutations/dispatch in that cycle. No exceptions for PR-CI mode switching.
+- **Nudge-vs-control hard gate (added 2026-03-09):** heartbeat/cron may send task nudges, but must not send control/mutation commands (session resets, timer flips, stop/handoff directives, or PR slash-command dispatch) unless BOTH are verified in-cycle: (1) workflow is independently done, and (2) the active OpenCode/manual path is truly idle.
+- **Global terminal-busy wait rule (added 2026-03-10):** for any terminal-touching cron/heartbeat path, if the target OpenCode/manual path is actively working (not true paused/idle), return `NOOP:terminal-busy` and perform zero mutations/dispatch in that cycle. No exceptions for PR-CI mode switching.
 - **15-minute handoff timer is stateful (hard rule), not in-memory:**
   - State file: `~/Desktop/shadow/heartbeat-handoff-state.json` (same as `~/.openclaw/workspace/heartbeat-handoff-state.json`).
   - Per repo fields: `handoff_started_at` (epoch ms or null), `cut_sent` (bool).
@@ -202,16 +202,12 @@ Classify runtime mode each cycle:
   - If elapsed >= 15 minutes and still running, send `C-c`, set `cut_sent=true`, and continue transition.
   - Clear repo state (`handoff_started_at=null`, `cut_sent=false`) once transition completes or condition clears.
 - Do not escalate solely because a terminal did not stop immediately; allow long-running work during the 15-minute grace window.
-- **Desync auto-fix (hard rule):** when expected terminal mode and actual tmux process mode differ (`cdx` vs `cc`), heartbeat must auto-correct in-cycle:
-  1) send `C-c`,
-  2) launch expected command token (`cdx` for manual, `cc` for PR-CI),
-  3) verify mode via pane PID + process tree (not `pane_current_command` alone),
-  4) only then continue command dispatch (`/pr`, `/fix-pr-comments`, etc.).
-- **Cron-gated mode-mutation rule (added 2026-03-08):** heartbeat may switch tmux mode only when the corresponding automation is ON for that repo: PR-CI ON => `cc`, manual/agent ON => `cdx`; if both OFF => report-only (no mode mutation); if both ON => conflict (`BLOCKED_HUMAN`) and no mutation.
-- **Human-controlled hands-off rule (added 2026-03-08):** if both PR-CI and manual/agent automation are OFF for a repo, treat that repo as human-controlled and do not interfere: no handoff-gate evaluation, no dirty-handoff timer actions, and no tmux input injection for that repo.
-- **Repo-path auto-fix (hard rule, added 2026-03-08):** before any PR/terminal dispatch, heartbeat must verify pane working directory matches expected repo (`nixelo` -> `~/Desktop/nixelo`, `starthub` -> `~/Desktop/StartHub`). If mismatched, auto-correct in-cycle: `C-c` -> `cd <expected repo>` -> launch expected token (`cc`/`cdx`) -> verify both path + mode, then and only then dispatch commands.
-- **Tmux persistence hard rule (added 2026-03-08):** do not close tmux sessions during heartbeat/cron handling. Keep sessions alive at all times; recover via in-pane controls only (`C-c`, `cd`, relaunch token). Do not use `tmux kill-session`, `tmux kill-server`, or pane-respawn flows that drop the session.
-- **Done-done stop hard rule (added 2026-03-08):** once a target workflow is independently verified complete, heartbeat/cron must disable all related cron jobs immediately (global rule, not PR-CI-only), stop further automation dispatch, and keep tmux sessions alive.
+- **Session/bootstrap auto-fix (hard rule):** when expected terminal path and active automation path diverge, heartbeat must prefer OpenCode-native recovery in-cycle: verify the target repo, verify the OpenCode/manual session exists, and only then continue command dispatch.
+- **Cron-gated mode-mutation rule (added 2026-03-08):** heartbeat may change active terminal automation only when the corresponding automation is ON for that repo: PR-CI ON => PR-CI path, manual/agent ON => manual/agent path; if both OFF => report-only; if both ON => conflict (`BLOCKED_HUMAN`) and no mutation.
+- **Human-controlled hands-off rule (added 2026-03-08):** if both PR-CI and manual/agent automation are OFF for a repo, treat that repo as human-controlled and do not interfere: no handoff-gate evaluation, no dirty-handoff timer actions, and no manual dispatch injection for that repo.
+- **Repo-path auto-fix (hard rule, added 2026-03-08):** before any PR/terminal dispatch, heartbeat must verify the expected repo path and target session context for the repo (`nixelo` -> `~/Desktop/nixelo`, `starthub` -> `~/Desktop/StartHub`). If mismatched, auto-correct via OpenCode/session bootstrap before dispatch.
+- **Session persistence hard rule (added 2026-03-08):** do not destroy working terminal sessions during heartbeat/cron handling. Prefer OpenCode-native recovery and keep terminal state alive unless the user explicitly wants teardown.
+- **Done-done stop hard rule (added 2026-03-08):** once a target workflow is independently verified complete, heartbeat/cron must disable all related cron jobs immediately (global rule, not PR-CI-only), stop further automation dispatch, and keep reusable session state intact.
 - **Independent completion verification (hard rule):** terminal self-report is never sufficient to mark PR work complete. The assistant must verify resolution itself via both: (a) workflow/skill-side review state, and (b) direct `gh` review/thread checks, including required 👍 reaction evidence when applicable.
 - **Fail-closed PR existence rule (added 2026-03-08):** if PR lookup/readiness check is ambiguous or errors, dispatch no commands (`NOOP`/`BLOCKED_HUMAN`). Do not send `/pr` unless no-open-PR is directly and unambiguously verified via `gh` in the same run.
 - **Scripted dispatch rule (added 2026-03-08):** for StartHub PR-CI, use deterministic script dispatcher `scripts/pr_ci_starthub_dispatch.sh` as sole command path; do not emit freeform tmux commands from prompt logic.
@@ -225,25 +221,20 @@ Minimum verification commands:
 ```bash
 systemctl --user is-active manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer
 systemctl --user is-enabled manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer
-tmux has-session -t nixelo && tmux capture-pane -t nixelo -p | tail -5
-tmux has-session -t starthub && tmux capture-pane -t starthub -p | tail -5
+scripts/opencodectl ensure-session nixelo
+scripts/opencodectl ensure-session starthub
 ```
 
 Terminal enable preflight (mandatory before turning terminal timers/crons ON):
 ```bash
-# 1) tmux session must exist
-tmux has-session -t nixelo
-tmux has-session -t starthub
+# 1) OpenCode server must be healthy
+scripts/opencodectl status
 
-# 2) Codex must be active/ready in pane; verify via current process (not stale banner text)
-pane=$(tmux list-panes -t nixelo -F '#{pane_id}' | head -n1)
-tmux display-message -p -t "$pane" '#{pane_current_command}'
-# READY only when active Codex process is running (typically `node`), not `bash`
-# if Codex not present/ready:
-tmux send-keys -t nixelo "cdx"
-tmux send-keys -t nixelo Enter
+# 2) required repo session must be bootstrappable
+scripts/opencodectl ensure-session nixelo
+scripts/opencodectl ensure-session starthub
 
-# 3) verify Codex is ready again via pane_current_command, then enable timer/cron
+# 3) only then enable timer/cron
 ```
 Hard stop: if the required OpenCode session cannot be bootstrapped or Codex is not ready, do not enable anything. Report failure and wait for explicit user direction.
 
@@ -264,8 +255,8 @@ journalctl --user -u manual-terminal-<repo>.service --since "-30min" --no-pager 
 Score each repo from these signals:
 
 - +2: recent non-ignored commit within `stale_minutes`
-- +1: tmux shows `Working`
-- -2: tmux sits at bare prompt (`›`) with no meaningful output AND nudges not being delivered
+- +1: recent manual dispatch/session activity shows meaningful work
+- -2: manual dispatch/session path appears idle with no meaningful output AND nudges not being delivered
 - -2: heavy token burn / repeated output without commit
 - -3: explicit error/prompt loop requiring input
 - -3: **done-loop detected** — terminal pane shows 3+ "done"/"complete"/"nothing left" messages (act immediately, don't wait)
@@ -378,14 +369,14 @@ When you see these system events in the main session:
 ### 4) Recovery action
 
 If **Stalled** or **At risk**:
-1. Check `last_action` in tmux
+1. Check latest OpenCode/manual session activity
 2. **Targeted nudge**: next incomplete item + "run checks + commit"
-3. If still stalled, send `C-c`, then re-send targeted instruction
+3. If still stalled, re-bootstrap the target session if needed, then re-send targeted instruction
 
-**IMPORTANT:** send text and Enter as TWO separate `tmux send-keys` calls.
+**IMPORTANT:** use the OpenCode/manual dispatch path, not raw tmux key injection.
 
 After each attempt:
-- Re-capture pane output and confirm `Working` appears.
+- Re-check session/manual dispatch output and confirm work resumed.
 - Re-check latest commit age/subject.
 
 ### 5) Escalation rule
@@ -406,8 +397,10 @@ If no attention needed in any mode, reply exactly: `HEARTBEAT_OK`
 ### 6) Quick status commands
 
 ```bash
-tmux capture-pane -t nixelo -p | tail -5
-tmux capture-pane -t starthub -p | tail -5
+scripts/opencodectl ensure-session nixelo
+scripts/opencodectl ensure-session starthub
+journalctl --user -u manual-terminal-nixelo.service -n 5 --no-pager
+journalctl --user -u manual-terminal-starthub.service -n 5 --no-pager
 ```
 
 ---
