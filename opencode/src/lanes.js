@@ -5,7 +5,7 @@ const LANE_CONFIG = {
     title: "nixelo",
     action: "prompt",
     completion: "accepted",
-    prompt: "Manual nixelo check-in: inspect current context, continue only if safe, and wait for the next explicit instruction if user input is required.",
+    prompt: "Read todos-hot/README.md. Pick the single highest-impact open item. Implement it completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.",
   },
   "manual:starthub": {
     repo: "starthub",
@@ -13,7 +13,7 @@ const LANE_CONFIG = {
     title: "starthub",
     action: "prompt",
     completion: "accepted",
-    prompt: "Manual starthub check-in: inspect current context, continue only if safe, and wait for the next explicit instruction if user input is required.",
+    prompt: "Read todos/planning/postgres-migration.md. Pick the single highest-impact open item. Implement it completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.",
   },
   "agent:nixelo": {
     repo: "nixelo",

@@ -3,4 +3,5 @@ Description=Manual terminal nudge for starthub tmux session
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-manual-work-ping starthub
+EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping starthub

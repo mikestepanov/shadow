@@ -19,6 +19,7 @@ What lives here:
 Observed control planes:
 
 - systemd user units: `watcher.timer`, `manual-terminal-*`, `agent-terminal-*`
+- manual terminal timers dispatch OpenCode sessions via `manual-ping`; they no longer send tmux input
 - OpenCode cron jobs: `Heartbeat`, `pr-ci-nixelo`, `pr-ci-starthub`
 
 Operational rule:

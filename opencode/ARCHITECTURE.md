@@ -18,11 +18,21 @@
 2. OpenCode server-side session metadata
 3. terminal/tmux fallback only if native state is unavailable
 
-## Non-goals for the first pass
-- no scheduler yet
-- no Telegram/Discord delivery yet
+## Current implemented control surface
+- `status` / `send` / `safe-send` / `safe-command` for session-aware control
+- `lane-run` / `enqueue-lane` / `run-queue` for queue-backed lane dispatch
+- `cron list|enable|disable|edit|run` for OpenCode-owned cron jobs
+- `ensure-session` / `manual-ping` for repo-scoped manual session bootstrap and dispatch
+
+## Runtime reality
+- `opencode.service` owns the local HTTP server on `127.0.0.1:4096`
+- OpenCode cron state lives under `opencode/var/`
+- systemd manual timers still exist, but they dispatch OpenCode manual sessions instead of tmux input
+- Telegram delivery for automation scripts is provided via `TELEGRAM_BOT_TOKEN`
+
+## Still not goals
 - no broad multi-agent orchestration yet
-- no heavy UI yet
+- no heavy UI beyond `automationctl`
 
 ## Minimal layout
 - `src/client.ts` - OpenCode API wrapper

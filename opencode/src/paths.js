@@ -13,3 +13,7 @@ export function resolveRepoPath(...segments) {
 export function resolveOpencodePath(...segments) {
   return resolve(OPENCODE_DIR, ...segments);
 }
+
+export function resolveOpencodeVarPath(...segments) {
+  return resolve(OPENCODE_DIR, "var", ...segments);
+}

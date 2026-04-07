@@ -45,7 +45,7 @@ check_unit_policy() {
   ok "$unit load=$load_state unit_file_state=$file_state active=$active_state"
 }
 
-printf 'OpenClaw health check\n'
+printf 'OpenCode automation health check\n'
 
 watcher_timer_active="$(unit_state watcher.timer)"
 watcher_timer_enabled="$(unit_file_state watcher.timer)"

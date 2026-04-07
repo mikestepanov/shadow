@@ -44,13 +44,14 @@ for repo_name in ('nixelo', 'starthub'):
     )
 PY
 
-heartbeat_line="$($OPENCODECTL cron list --all --json 2>/dev/null | python3 -c 'import json, sys
-payload = json.load(sys.stdin)
+heartbeat_json="$($OPENCODECTL cron list --all --json 2>/dev/null)"
+heartbeat_line="$(python3 -c 'import json, sys
+payload = json.loads(sys.argv[1]) if sys.argv[1].strip() else {}
 jobs = payload.get("jobs", []) if isinstance(payload, dict) else []
 for job in jobs:
     if job.get("name") == "Heartbeat":
-        print(f"{job.get('id')} {job.get('name')} {job.get('scheduleText')} status={job.get('status')}")
-        break')"
+        print("{} {} {} status={}".format(job.get("id"), job.get("name"), job.get("scheduleText"), job.get("status")))
+        break' "$heartbeat_json")"
 
 if [[ -n "$heartbeat_line" ]]; then
   printf 'heartbeat cron %s\n' "$heartbeat_line"

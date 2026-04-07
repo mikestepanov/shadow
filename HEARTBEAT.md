@@ -331,8 +331,8 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
 
 **Full lifecycle — runs automatically, no human intervention needed:**
 
-1. `manual-terminal-nixelo.timer` nudges terminal with TODO work
-2. TODO exhaustion detection (heartbeat OR nudge script):
+1. `manual-terminal-nixelo.timer` triggers OpenCode manual dispatch for nixelo TODO work
+2. TODO exhaustion detection (heartbeat OR manual-ping path):
    - Each heartbeat cycle, if `manual-terminal-nixelo.timer` is active, check `grep -c '^\- \[ \]' <task_file>` in the repo.
    - If 0 open items, check diff size to decide next mode:
      ```bash
@@ -340,7 +340,7 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
      ```
      - `code_changes > 0` (meaningful code shipped) → disable manual timer → enable **PR-CI** cron → send Telegram notification.
      - `code_changes == 0` (only .md or nothing) → disable manual timer → enable **agent** timer → send Telegram notification.
-   - The nudge script also detects TODO exhaustion independently (existing behavior, belt-and-suspenders).
+    - The OpenCode manual-ping path also detects TODO exhaustion independently (existing behavior, belt-and-suspenders).
 3. PR-CI cron handles review/fix cycles (existing behavior)
 4. Heartbeat detects done-done → calls `scripts/auto_nixelo_cycle.sh` which:
    - Disables PR-CI cron
@@ -355,7 +355,7 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
 
 **Assumptions:**
 - `pnpm dev` is always running (managed by user)
-- tmux session `nixelo` always exists with `cc` ready
+- OpenCode session bootstrap for `nixelo` is available via `scripts/opencodectl ensure-session nixelo`
 - Branch naming: `YYYY-MM-DD-HH-MM` (e.g. `2026-03-23-19-14`)
 
 ---

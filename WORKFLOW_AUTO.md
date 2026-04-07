@@ -12,12 +12,19 @@ Restore operational rules after compaction/restart so automation behavior stays 
 - Every plan must include explicit final state per item: `ON` or `OFF`.
 
 ## Scheduler Model
-- Terminal automation is **systemd-only** (not OpenClaw terminal crons).
+- Terminal automation is split across:
+  - systemd user timers for watcher/manual/agent scheduling
+  - OpenCode cron for Heartbeat and PR-CI automation
 - Current terminal systemd units:
   - `manual-terminal-nixelo.timer`
   - `manual-terminal-starthub.timer`
   - `agent-terminal-nixelo.timer`
   - `agent-terminal-starthub.timer`
+
+Manual timer semantics:
+- `manual-terminal-*` timers are still systemd units
+- but their services now dispatch OpenCode manual sessions via `scripts/opencodectl manual-ping <repo>`
+- they are no longer tmux-input nudgers
 
 ## Runtime Policy
 - Preferred OFF behavior: **delete/uninstall runtime unit**, keep repo files.
@@ -40,7 +47,7 @@ Note:
 
 ## Cron Listing Output Format
 When user asks to list crons, output exactly two tables in this order:
-1) `OpenClaw Crons`
+1) `OpenCode Crons`
 2) `systemd Timers`
 
 Table columns must be:
