@@ -43,7 +43,7 @@ Current canonical systemd terminal units:
 - `agent-terminal-nixelo.timer`
 - `agent-terminal-starthub.timer`
 
-OpenCode terminal automation jobs (tmux/PR-CI):
+OpenCode terminal automation jobs:
 - `pr-ci-nixelo`
 - `pr-ci-starthub`
 

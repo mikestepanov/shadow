@@ -22,12 +22,12 @@
 - `status` / `send` / `safe-send` / `safe-command` for session-aware control
 - `lane-run` / `enqueue-lane` / `run-queue` for queue-backed lane dispatch
 - `cron list|enable|disable|edit|run` for OpenCode-owned cron jobs
-- `ensure-session` / `manual-ping` for repo-scoped manual session bootstrap and dispatch
+- `ensure-session` / `manual-ping` / `agent-ping` for repo-scoped session bootstrap and dispatch
 
 ## Runtime reality
 - `opencode.service` owns the local HTTP server on `127.0.0.1:4096`
 - OpenCode cron state lives under `opencode/var/`
-- systemd manual timers still exist, but they dispatch OpenCode manual sessions instead of tmux input
+- systemd manual/agent timers still exist, but they dispatch OpenCode sessions instead of tmux input
 - Telegram delivery for automation scripts is provided via `TELEGRAM_BOT_TOKEN`
 
 ## Still not goals

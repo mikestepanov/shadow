@@ -43,7 +43,7 @@ Actions for plan:
 
 Notes:
   - "OFF" means both control planes are off.
-  - For systemd units: inactive + disabled/masked/not-found is acceptable OFF.
+  - For canonical systemd timer units: keep unit files installed; OFF is inactive + masked.
   - For OpenClaw PR-CI jobs: status must be disabled.
   - AI agents MUST use plan/execute flow. Direct openclaw cron/systemctl calls are forbidden.
 EOF
@@ -106,9 +106,7 @@ unit_enabled() { systemctl --user is-enabled "$1" 2>&1 || true; }
 
 ensure_timer_installed() {
   local unit="$1"
-  if [[ "$(unit_enabled "$unit")" == "not-found" ]]; then
-    "$SCRIPT_DIR/timers-install" "${unit%.timer}" >/dev/null
-  fi
+  "$SCRIPT_DIR/timers-install" --install-only "${unit%.timer}" >/dev/null
 }
 
 cron_list_json() { "$OPENCODECTL" cron list --all --json; }
@@ -156,7 +154,7 @@ systemd_off_ok() {
 
   local active_ok=0 enabled_ok=0
   [[ "$a" == "inactive" || "$a" == "failed" || "$a" == "unknown" ]] && active_ok=1
-  [[ "$e" == "disabled" || "$e" == "masked" || "$e" == "not-found" ]] && enabled_ok=1
+  [[ "$e" == "masked" ]] && enabled_ok=1
 
   [[ $active_ok -eq 1 && $enabled_ok -eq 1 ]]
 }
@@ -176,8 +174,9 @@ set_off() {
 
   # systemd plane
   while IFS= read -r unit; do
+    ensure_timer_installed "$unit"
     systemctl --user stop "$unit" 2>/dev/null || true
-    systemctl --user disable "$unit" 2>/dev/null || true
+    systemctl --user mask "$unit" 2>/dev/null || true
   done < <(scope_units "$scope")
 
   # OpenCode cron plane
@@ -243,7 +242,7 @@ create_plan() {
         local a e
         a="$(unit_active "$unit")"
         e="$(unit_enabled "$unit")"
-        changes="$changes\n  $unit: active=$a enabled=$e → active=inactive enabled=disabled"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=inactive enabled=masked"
       done < <(scope_units "$scope" "manual")
       ;;
     enable-prci)
@@ -322,14 +321,16 @@ execute_plan() {
     enable-manual)
       while IFS= read -r unit; do
         ensure_timer_installed "$unit"
+        systemctl --user unmask "$unit" 2>/dev/null || true
         systemctl --user enable "$unit" 2>/dev/null || true
         systemctl --user start "$unit" 2>/dev/null || true
       done < <(scope_units "$scope" "manual")
       ;;
     disable-manual)
       while IFS= read -r unit; do
+        ensure_timer_installed "$unit"
         systemctl --user stop "$unit" 2>/dev/null || true
-        systemctl --user disable "$unit" 2>/dev/null || true
+        systemctl --user mask "$unit" 2>/dev/null || true
       done < <(scope_units "$scope" "manual")
       ;;
     enable-prci)

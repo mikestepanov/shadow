@@ -1,6 +1,7 @@
 [Unit]
-Description=Agent terminal nudge for nixelo tmux session
+Description=Agent terminal dispatch for nixelo OpenCode session
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-agent-work-ping nixelo
+EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping nixelo

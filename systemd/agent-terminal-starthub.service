@@ -1,6 +1,7 @@
 [Unit]
-Description=Agent terminal nudge for starthub tmux session
+Description=Agent terminal dispatch for starthub OpenCode session
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-agent-work-ping starthub
+EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping starthub

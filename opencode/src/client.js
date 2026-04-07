@@ -48,6 +48,17 @@ export async function listSessions(options = {}) {
   return fetchJson("/session", options);
 }
 
+export async function getSession(sessionId, options = {}) {
+  const sessions = await listSessions(options);
+  const sessionList = Array.isArray(sessions) ? sessions : [];
+  return (
+    sessionList.find((session) => {
+      const id = session?.id || session?.ID || session?.sessionID || "";
+      return id === sessionId;
+    }) || null
+  );
+}
+
 export async function getSessionStatuses(options = {}) {
   return fetchJson("/session/status", options);
 }

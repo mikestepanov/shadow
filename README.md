@@ -19,8 +19,14 @@ What lives here:
 Observed control planes:
 
 - systemd user units: `watcher.timer`, `manual-terminal-*`, `agent-terminal-*`
-- manual terminal timers dispatch OpenCode sessions via `manual-ping`; they no longer send tmux input
+- manual and agent terminal timers dispatch OpenCode sessions; they no longer send tmux input
 - OpenCode cron jobs: `Heartbeat`, `pr-ci-nixelo`, `pr-ci-starthub`
+
+Conversation terminology:
+
+- Treat both systemd timer automation and OpenCode cron jobs as "cron" in user-facing conversation.
+- If precision matters, say "manual cron" / "timer cron" for `manual-terminal-*` or `agent-terminal-*`, and "PR-CI cron" / "OpenCode cron" for `pr-ci-*`.
+- Do not imply that only `pr-ci-*` counts as cron-enabled automation.
 
 Operational rule:
 

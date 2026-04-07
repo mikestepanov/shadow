@@ -85,7 +85,11 @@ def _parse_timer_interval(show_out: str) -> str | None:
 
 def _parse_interval_from_unit_file(unit: str) -> str | None:
     """Fallback: read OnCalendar from source unit file when systemd can't report it."""
-    for base in [ROOT / "systemd", Path.home() / ".config" / "systemd" / "user"]:
+    for base in [
+        ROOT / "systemd",
+        Path.home() / ".config" / "systemd" / "user",
+        Path.home() / ".local" / "share" / "systemd" / "user",
+    ]:
         path = base / unit
         if path.exists():
             text = path.read_text()
@@ -593,20 +597,36 @@ class AutomationCtlApp(App[None]):
         )
 
     def _ensure_timer_installed(self, unit: str) -> str:
-        enabled_code, enabled_out = run_command(["systemctl", "--user", "is-enabled", unit])
-        current = enabled_out.splitlines()[0] if enabled_out else f"exit:{enabled_code}"
-        if current != "not-found":
-            return ""
-
-        install_cmd = [str(ROOT / "scripts" / "timers-install"), timer_unit_name(unit)]
+        timer_unit = unit if unit.endswith(".timer") else f"{unit}.timer"
+        install_cmd = [str(ROOT / "scripts" / "timers-install"), "--install-only", timer_unit_name(timer_unit)]
         code, output = run_command(install_cmd)
         if code != 0:
             return f"FAILED to install missing timer unit\n$ {' '.join(shlex.quote(p) for p in install_cmd)}\n\n{output}"
-        return f"Installed missing timer unit\n$ {' '.join(shlex.quote(p) for p in install_cmd)}\n\n{output}"
+        return f"Installed canonical timer unit\n$ {' '.join(shlex.quote(p) for p in install_cmd)}\n\n{output}"
 
     def _set_systemd_timer(self, unit: str, enable: bool) -> str:
-        cmd = ["systemctl", "--user", "enable", "--now", unit] if enable else ["systemctl", "--user", "disable", "--now", unit]
-        code, output = run_command(cmd)
+        if enable:
+            unmask_cmd = ["systemctl", "--user", "unmask", unit]
+            unmask_code, unmask_out = run_command(unmask_cmd)
+            cmd = ["systemctl", "--user", "enable", "--now", unit]
+            enable_code, enable_out = run_command(cmd)
+            code = 0 if unmask_code == 0 and enable_code == 0 else 1
+            output = (
+                f"$ {' '.join(shlex.quote(p) for p in unmask_cmd)}\n\n{unmask_out}\n\n"
+                f"$ {' '.join(shlex.quote(p) for p in cmd)}\n\n{enable_out}"
+            )
+        else:
+            install_log = self._ensure_timer_installed(unit)
+            stop_cmd = ["systemctl", "--user", "stop", unit]
+            stop_code, stop_out = run_command(stop_cmd)
+            mask_cmd = ["systemctl", "--user", "mask", unit]
+            mask_code, mask_out = run_command(mask_cmd)
+            code = 0 if stop_code == 0 and mask_code == 0 else 1
+            cmd = mask_cmd
+            output = (
+                f"{install_log}\n\n$ {' '.join(shlex.quote(p) for p in stop_cmd)}\n\n{stop_out}\n\n"
+                f"$ {' '.join(shlex.quote(p) for p in mask_cmd)}\n\n{mask_out}"
+            )
         marker = "OK" if code == 0 else "FAILED"
         return f"{marker}\n$ {' '.join(shlex.quote(p) for p in cmd)}\n\n{output}"
 

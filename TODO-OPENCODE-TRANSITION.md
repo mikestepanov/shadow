@@ -2,44 +2,43 @@
 
 Remaining TODO only.
 
-## 1. Inbound Telegram Bridge
-
-Missing capability:
-
-- Telegram outbound works
-- Telegram inbound does not
-- OpenCode does not yet auto-receive Telegram messages and reply back
-
-Tasks:
-
-1. Add a persisted Telegram update offset/state file under `opencode/var/`.
-2. Add a small poller or webhook bridge that reads inbound Telegram messages.
-3. Route inbound messages into a stable OpenCode session.
-4. Send the assistant reply back to Telegram automatically.
-5. Add systemd runtime wiring for the bridge.
-
-Acceptance criteria:
-
-1. A Telegram message sent to the bot is ingested automatically.
-2. OpenCode generates a reply without manual intervention.
-3. The reply is sent back to Telegram automatically.
-
-## 2. Heartbeat Contract Cleanup
+## 1. Canonical Repo Session Reliability
 
 Remaining issue:
 
-- `HEARTBEAT.md` still contains tmux-centric operational reasoning in several sections.
+- manual/agent automation can keep targeting a stale historical OpenCode session after `opencode.service` restart or visible tab loss
+- when that happens, cron/timers stay ON but useful work stops
 
 Tasks:
 
-1. Rewrite repo-health sections to prefer OpenCode session truth first.
-2. Remove or demote tmux-only assumptions where they are no longer part of the active path.
-3. Keep only the tmux checks that still have operational value as passive observation.
+1. Stop treating historical message availability as proof that a repo automation session is still live enough for dispatch.
+2. Make manual/agent dispatch use a real attached OpenCode execution path on each run.
+3. Recreate the canonical repo session automatically when the stored session is stale after restart.
+4. Keep one canonical automation session per repo (`nixelo`, `starthub`) without blocking extra manual user sessions.
+5. Prove recovery by restarting `opencode.service` and verifying the next timer-driven dispatch still works without a visible tab.
 
 Acceptance criteria:
 
-1. Heartbeat contract describes the active runtime as OpenCode-first.
-2. tmux appears only as observational/fallback context, not as the active control path.
+1. If the visible tab dies, the next scheduled manual/agent dispatch still performs useful work.
+2. If `opencode.service` restarts, automation recreates or reuses the canonical repo session correctly.
+3. Nixelo/starthub no longer sit in a false-success state where cron/timers are ON but nothing is executing.
+
+## 2. Timer/Cron Terminology Cleanup
+
+Remaining issue:
+
+- operator docs and conversation shorthand were inconsistent about whether systemd timer automation counts as "cron"
+
+Tasks:
+
+1. Keep docs and operator language aligned: both systemd timer automation and OpenCode cron jobs count as cron in conversation.
+2. Use precise labels only when needed: `manual cron` / `timer cron` vs `PR-CI cron` / `OpenCode cron`.
+3. Remove wording that implies only `pr-ci-*` jobs count as cron-enabled automation.
+
+Acceptance criteria:
+
+1. Repo docs and operator conversation use one consistent meaning of "cron".
+2. Nixelo manual timer being ON is clearly understood as cron ON.
 
 ## 3. automationctl Semantics Cleanup
 

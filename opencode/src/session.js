@@ -2,13 +2,14 @@ import { execFile, spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-import { listSessionMessages, listSessions, promptSessionAsync, sessionExists } from "./client.js";
+import { listSessionMessages, listSessions, sessionExists } from "./client.js";
 import { getLaneConfig } from "./lanes.js";
 import { resolveOpencodeVarPath, resolveRepoPath } from "./paths.js";
 
 const execFileAsync = promisify(execFile);
 const MANUAL_SESSIONS_PATH = resolveOpencodeVarPath("manual-sessions.json");
 const OPENCODE_BIN = "/run/current-system/sw/bin/opencode";
+const STALE_BUSY_MS = Number(process.env.OPENCODE_STALE_BUSY_MS || 90 * 60 * 1000);
 
 const MANUAL_CONFIG = {
   nixelo: {
@@ -180,6 +181,38 @@ async function createAttachedSession(repo, config) {
   });
 }
 
+async function dispatchAttachedPrompt(sessionId, config, prompt) {
+  const child = spawn(
+    OPENCODE_BIN,
+    [
+      "run",
+      "--attach",
+      "http://127.0.0.1:4096",
+      "--session",
+      sessionId,
+      "--dir",
+      config.dir,
+      "--format",
+      "json",
+      prompt,
+    ],
+    {
+      cwd: config.dir,
+      env: process.env,
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
+    },
+  );
+
+  child.unref();
+
+  return {
+    ok: true,
+    sessionId,
+    accepted: true,
+  };
+}
+
 async function readTodoStats(config) {
   const todoPath = `${config.dir}/${config.todoFile}`;
   let todoRaw = "";
@@ -250,12 +283,63 @@ function latestMessageState(message) {
   return "unknown";
 }
 
-async function latestSessionState(sessionId) {
+function latestMessageCreatedAt(message) {
+  return Number(message?.info?.time?.created || message?.time?.created || 0);
+}
+
+function isStaleBusyMessage(message, state) {
+  if (state !== "busy") {
+    return false;
+  }
+
+  const createdAt = latestMessageCreatedAt(message);
+  if (!Number.isFinite(createdAt) || createdAt <= 0) {
+    return false;
+  }
+
+  if (Date.now() - createdAt < STALE_BUSY_MS) {
+    return false;
+  }
+
+  const role = message?.info?.role;
+  const finish = message?.info?.finish;
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+
+  if (role === "user") {
+    return true;
+  }
+
+  if (role === "assistant") {
+    if (finish === "stop") {
+      return false;
+    }
+    if (parts.some((part) => part?.type === "step-finish" && part?.reason === "stop")) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+async function latestSessionSnapshot(sessionId) {
   try {
     const messages = await listSessionMessages(sessionId, { limit: 1 });
-    return latestMessageState(Array.isArray(messages) ? messages[0] : null);
+    const message = Array.isArray(messages) ? messages[0] : null;
+    const state = latestMessageState(message);
+    return {
+      state,
+      message,
+      createdAt: latestMessageCreatedAt(message),
+      staleBusy: isStaleBusyMessage(message, state),
+    };
   } catch {
-    return "unknown";
+    return {
+      state: "unknown",
+      message: null,
+      createdAt: 0,
+      staleBusy: false,
+    };
   }
 }
 
@@ -347,9 +431,22 @@ export async function runManualPing(repo) {
     };
   }
 
+  const snapshot = await latestSessionSnapshot(session.sessionId);
+  const canDispatch = snapshot.state !== "busy" || snapshot.staleBusy;
+
   if (todo.checklistItems === 0) {
     const prompt = `Read ${config.todoFile}. Do NOT start implementation yet. First convert this TODO into markdown checkboxes (- [ ] for open items, - [x] for done items). Preserve all existing tasks/content. After converting, continue with the highest-impact open checkbox.`;
-    await promptSessionAsync(session.sessionId, { parts: [{ type: "text", text: prompt }] });
+    if (!canDispatch) {
+      return {
+        ok: true,
+        repo,
+        sessionId: session.sessionId,
+        action: "noop",
+        message: `NOOP:manual-busy repo=${repo} session=${session.sessionId}`,
+      };
+    }
+
+    await dispatchAttachedPrompt(session.sessionId, config, prompt);
     return {
       ok: true,
       repo,
@@ -383,8 +480,12 @@ export async function runManualPing(repo) {
     };
   }
 
-  const state = await latestSessionState(session.sessionId);
-  if (state === "busy") {
+  const lane = getLaneConfig("manual", repo);
+  if (!lane) {
+    return { ok: false, error: `No manual lane for ${repo}` };
+  }
+
+  if (!canDispatch) {
     return {
       ok: true,
       repo,
@@ -394,14 +495,12 @@ export async function runManualPing(repo) {
     };
   }
 
-  const lane = getLaneConfig("manual", repo);
-  if (!lane) {
-    return { ok: false, error: `No manual lane for ${repo}` };
+  if (snapshot.staleBusy) {
+    const staleMinutes = Math.floor((Date.now() - snapshot.createdAt) / 60000);
+    await telegramNotify(`Recovered stale OpenCode manual session for ${repo} after ${staleMinutes}m stuck busy by dispatching a fresh attached runner.`);
   }
 
-  await promptSessionAsync(session.sessionId, {
-    parts: [{ type: "text", text: lane.prompt }],
-  });
+  await dispatchAttachedPrompt(session.sessionId, config, lane.prompt);
 
   return {
     ok: true,
@@ -409,6 +508,51 @@ export async function runManualPing(repo) {
     sessionId: session.sessionId,
     action: "sent",
     message: `SENT manual repo=${repo} session=${session.sessionId} msg=${lane.prompt}`,
+  };
+}
+
+export async function runAgentPing(repo) {
+  const config = manualConfig(repo);
+  if (!config) {
+    return { ok: false, error: `Unknown agent repo ${repo}` };
+  }
+
+  const session = await ensureManualSession(repo);
+  if (!session.ok) {
+    return session;
+  }
+
+  const snapshot = await latestSessionSnapshot(session.sessionId);
+  const canDispatch = snapshot.state !== "busy" || snapshot.staleBusy;
+
+  const lane = getLaneConfig("agent", repo);
+  if (!lane) {
+    return { ok: false, error: `No agent lane for ${repo}` };
+  }
+
+  if (!canDispatch) {
+    return {
+      ok: true,
+      repo,
+      sessionId: session.sessionId,
+      action: "noop",
+      message: `NOOP:agent-busy repo=${repo} session=${session.sessionId}`,
+    };
+  }
+
+  if (snapshot.staleBusy) {
+    const staleMinutes = Math.floor((Date.now() - snapshot.createdAt) / 60000);
+    await telegramNotify(`Recovered stale OpenCode agent session for ${repo} after ${staleMinutes}m stuck busy by dispatching a fresh attached runner.`);
+  }
+
+  await dispatchAttachedPrompt(session.sessionId, config, lane.prompt);
+
+  return {
+    ok: true,
+    repo,
+    sessionId: session.sessionId,
+    action: "sent",
+    message: `SENT agent repo=${repo} session=${session.sessionId} msg=${lane.prompt}`,
   };
 }
 
