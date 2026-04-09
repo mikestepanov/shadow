@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { enqueueLane } from "./queue.js";
 import { resolveRepoPath } from "./paths.js";
 
 const execFileAsync = promisify(execFile);
@@ -9,8 +8,7 @@ const execFileAsync = promisify(execFile);
 const AUTO_CONFIG = {
   nixelo: {
     gateFile: resolveRepoPath("auto-nixelo-enabled.json"),
-    repoPath: resolveRepoPath("..", "nixelo"),
-    todoFile: "todos-hot/README.md",
+    scriptPath: resolveRepoPath("scripts", "auto_nixelo_cycle.sh"),
   },
 };
 
@@ -19,18 +17,30 @@ async function readJson(filePath) {
   return JSON.parse(raw);
 }
 
-async function countOpenTodos(repoPath, relativeTodoFile) {
-  const target = resolve(repoPath, relativeTodoFile);
-  const { stdout } = await execFileAsync("bash", ["-lc", `grep -c '^\s*- \[ \]' ${JSON.stringify(target)} || true`]);
-  return Number(String(stdout).trim() || "0");
+function splitOutput(stdout, stderr) {
+  return `${stdout || ""}${stderr || ""}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
-async function countCodeChanges(repoPath) {
-  const { stdout } = await execFileAsync("bash", ["-lc", `git -C ${JSON.stringify(repoPath)} diff main --name-only | grep -cv '\\.md$' || true`]);
-  return Number(String(stdout).trim() || "0");
+function summarizeOutput(lines) {
+  const lastLine = lines[lines.length - 1] || "";
+
+  if (lastLine.startsWith("CYCLED:")) {
+    return { action: "cycled", result: lastLine };
+  }
+  if (lastLine.startsWith("WAIT:")) {
+    return { action: "waiting", result: lastLine };
+  }
+  if (lastLine.startsWith("SKIP:")) {
+    return { action: "skipped", result: lastLine };
+  }
+
+  return { action: "checked", result: lastLine || "NO_OUTPUT" };
 }
 
-export async function runAutoCycle(repo, options = {}) {
+export async function runAutoCycle(repo) {
   const config = AUTO_CONFIG[repo];
   if (!config) {
     return { ok: false, error: `Unknown auto repo ${repo}` };
@@ -46,27 +56,27 @@ export async function runAutoCycle(repo, options = {}) {
     };
   }
 
-  const openTodos = await countOpenTodos(config.repoPath, config.todoFile);
-  if (openTodos > 0) {
+  try {
+    const { stdout = "", stderr = "" } = await execFileAsync("bash", [config.scriptPath], {
+      cwd: resolveRepoPath(),
+      env: process.env,
+    });
+    const output = splitOutput(stdout, stderr);
     return {
       ok: true,
       repo,
-      action: "none",
-      reason: "todos-open",
-      openTodos,
+      ...summarizeOutput(output),
+      output,
+    };
+  } catch (error) {
+    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
+    const stderr = typeof error?.stderr === "string" ? error.stderr : String(error?.message || "auto-cycle failed");
+    const output = splitOutput(stdout, stderr);
+    return {
+      ok: false,
+      repo,
+      error: output[output.length - 1] || "auto-cycle failed",
+      output,
     };
   }
-
-  const codeChanges = await countCodeChanges(config.repoPath);
-  const nextMode = codeChanges > 0 ? "prci" : "agent";
-  const queued = await enqueueLane(nextMode, repo, options);
-  return {
-    ok: true,
-    repo,
-    action: "queued",
-    nextMode,
-    codeChanges,
-    openTodos,
-    queued,
-  };
 }

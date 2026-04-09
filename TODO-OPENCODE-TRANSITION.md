@@ -2,6 +2,42 @@
 
 Remaining TODO only.
 
+## 0. Manual/Agent Cron - ENABLED ✓
+
+Manual and agent cron is now working:
+
+- Both `manual-terminal-nixelo.timer` and `manual-terminal-starthub.timer` are active and running
+- Session lookup now uses direct `/session/{id}` API to find stored sessions (not limited by `all` param)
+- `ensureManualSession` correctly finds existing sessions and avoids recreation
+- `dispatchAttachedPrompt` properly sends prompts to existing sessions
+
+Key fixes applied:
+1. Added `getSessionById` function that fetches `/session/{id}` directly instead of filtering `/session`
+2. Added `all=true` to listSessions calls to include sessions from other projects
+3. Fixed session title matching to use prefix matching (`startsWith`) for "nixelo-test" matching "nixelo"
+
+Problems:
+
+- `promptSessionAsync` fires and returns immediately (non-blocking), does not wait for completion
+- OpenCode `/session/status` endpoint incorrectly reports sessions as "busy" when idle - cannot trust it
+- Detached spawn for attached prompts doesn't work - session never receives the work
+- Every minute dispatches a new prompt while previous is still running (or stuck)
+- Session state detection uses buggy status endpoint instead of message inspection
+
+What needs to be fixed for re-enable:
+
+1. **Blocking dispatch**: Must wait for completion before returning. Either:
+   - Use a synchronous/blocking prompt call that waits for response
+   - Or track running state and skip dispatch if already busy until it completes
+
+2. **Session state detection**: Stop using `/session/status`. Instead:
+   - Check latest message - if last assistant message has no step-finish/stop, it's busy
+   - Or check for running tool calls in latest message parts
+
+3. **No duplicate dispatch**: If session is already processing, skip this cycle - don't queue multiple prompts
+
+4. **Test properly**: Before re-enabling, verify dispatch actually reaches session and gets a response
+
 ## 1. Canonical Repo Session Reliability
 
 Remaining issue:

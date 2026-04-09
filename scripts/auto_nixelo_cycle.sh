@@ -1,18 +1,14 @@
 #!/usr/bin/env bash
-# auto_nixelo_cycle.sh — Nixelo-specific post-merge lifecycle
-# Calls pr_done_merge.sh for the generic done-done + merge,
-# then creates a new date branch and re-enables manual cron.
-#
-# Exit codes:
-#   0 = action taken or nothing to do
-#   1 = error
-
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$HOME/Desktop/nixelo"
+TARGET_BRANCH="dev"
 TMUX_SESSION="nixelo"
+AUTO_GATE_FILE="$HOME/Desktop/shadow/auto-nixelo-enabled.json"
 MANUAL_TIMER="manual-terminal-nixelo.timer"
+PRCI_TIMER="prci-terminal-nixelo.timer"
+TIMERS_INSTALL="$SCRIPT_DIR/timers-install"
 TELEGRAM_TO="780599199"
 
 send_telegram() {
@@ -25,48 +21,115 @@ send_telegram() {
     >/dev/null 2>&1 || true
 }
 
-# --- Phase 1: Generic done-done + merge ---
-set +e
-output=$("$SCRIPT_DIR/pr_done_merge.sh" nixelo 2>&1)
-exit_code=$?
-set -e
+auto_enabled() {
+  node -e '
+    const fs = require("fs");
+    try {
+      const parsed = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(parsed && parsed.enabled ? "true" : "false");
+    } catch {
+      process.stdout.write("false");
+    }
+  ' "$AUTO_GATE_FILE"
+}
 
-echo "$output"
+ensure_timer_installed() {
+  "$TIMERS_INSTALL" --install-only "${1%.timer}" >/dev/null
+}
 
-# If not merged (waiting, skip, or error), stop here
-if [[ $exit_code -ne 0 ]] || [[ ! "$output" =~ ^MERGED: && ! "$output" =~ ^DONE-DONE: ]]; then
-  exit $exit_code
+timer_active() {
+  systemctl --user is-active "$1" 2>/dev/null || echo "inactive"
+}
+
+timer_enabled() {
+  systemctl --user is-enabled "$1" 2>/dev/null || echo "disabled"
+}
+
+if [[ "$(auto_enabled)" != "true" ]]; then
+  echo "SKIP:auto-disabled"
+  exit 0
 fi
 
-# --- Phase 2: Nixelo-specific — new branch + restart manual cron ---
+ensure_timer_installed "$MANUAL_TIMER"
+ensure_timer_installed "$PRCI_TIMER"
+
+prci_active="$(timer_active "$PRCI_TIMER")"
+prci_enabled="$(timer_enabled "$PRCI_TIMER")"
+if [[ "$prci_active" != "active" && "$prci_enabled" != "enabled" ]]; then
+  echo "SKIP:prci-off active=${prci_active} enabled=${prci_enabled}"
+  exit 0
+fi
+
+set +e
+gate_output="$($SCRIPT_DIR/is_done_done.sh nixelo 2>&1)"
+gate_exit=$?
+set -e
+
+if [[ $gate_exit -eq 2 ]]; then
+  echo "WAIT:${gate_output}"
+  exit 0
+fi
+
+if [[ $gate_exit -ne 0 ]]; then
+  printf '%s\n' "$gate_output" >&2
+  exit $gate_exit
+fi
+
 cd "$REPO_DIR"
 
-# Create new date branch
-new_branch=$(date '+%Y-%m-%d-%H-%M')
-git checkout -b "$new_branch" 2>/dev/null
-
-# Verify terminal is ready
-if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-  send_telegram "⚠️ Auto-nixelo: tmux session '$TMUX_SESSION' missing. Can't enable manual cron."
-  echo "ERROR:tmux-missing"
+branch="$(git branch --show-current)"
+pr_number="$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/null || echo "")"
+if [[ -z "$pr_number" ]]; then
+  echo "ERROR:no-open-pr-after-done-done"
   exit 1
 fi
 
-pane=$(tmux list-panes -t "$TMUX_SESSION" -F '#{pane_id}' | head -n1)
-pane_cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}')
+systemctl --user disable --now "$PRCI_TIMER" >/dev/null 2>&1 || true
 
-if [[ "$pane_cmd" == "bash" ]]; then
-  tmux send-keys -t "$TMUX_SESSION" "cc" Enter
-  sleep 3
+prci_active_after_disable="$(timer_active "$PRCI_TIMER")"
+prci_enabled_after_disable="$(timer_enabled "$PRCI_TIMER")"
+
+if gh pr merge "$pr_number" --squash --delete-branch 2>/dev/null; then
+  :
+else
+  pr_state_after_failure="$(gh pr view "$pr_number" --json state -q '.state' 2>/dev/null || echo "UNKNOWN")"
+  if [[ "$pr_state_after_failure" != "MERGED" ]]; then
+    systemctl --user enable --now "$PRCI_TIMER" >/dev/null 2>&1 || true
+    send_telegram "⚠️ Auto-nixelo: PR #$pr_number done-done but merge failed (state=$pr_state_after_failure). Re-enabled $PRCI_TIMER."
+    echo "ERROR:merge-failed state=$pr_state_after_failure"
+    exit 1
+  fi
 fi
 
-# Clear stale pane history to prevent false done-loop detection by nudge script
-# NOTE: Do NOT use tmux send-keys here — cc/cdx interprets it as user input
-tmux clear-history -t "$TMUX_SESSION" 2>/dev/null
+sleep 2
 
-# Enable manual timer
-systemctl --user start "$MANUAL_TIMER" 2>/dev/null
+git checkout "$TARGET_BRANCH" >/dev/null 2>&1
+git pull --ff-only >/dev/null 2>&1
 
-send_telegram "🔄 Auto-nixelo: new branch \`$new_branch\` created. Manual cron enabled. Let's go!"
-echo "CYCLED:new-branch=$new_branch"
-exit 0
+new_branch="$(date '+%Y-%m-%d-%H-%M')"
+if git show-ref --verify --quiet "refs/heads/$new_branch"; then
+  echo "ERROR:branch-exists $new_branch"
+  exit 1
+fi
+
+git checkout -b "$new_branch" >/dev/null 2>&1
+
+tmux_state="missing"
+if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+  tmux clear-history -t "$TMUX_SESSION" 2>/dev/null || true
+  tmux_state="ready"
+fi
+
+systemctl --user unmask "$MANUAL_TIMER" >/dev/null 2>&1 || true
+systemctl --user enable --now "$MANUAL_TIMER" >/dev/null 2>&1 || true
+
+manual_active="$(timer_active "$MANUAL_TIMER")"
+manual_enabled="$(timer_enabled "$MANUAL_TIMER")"
+
+if [[ "$manual_active" != "active" || "$manual_enabled" != "enabled" ]]; then
+  echo "ERROR:manual-timer-not-ready active=$manual_active enabled=$manual_enabled"
+  exit 1
+fi
+
+send_telegram "🔄 Auto-nixelo: PR #$pr_number merged, switched to $TARGET_BRANCH, created branch $new_branch, manual timer re-enabled, tmux=${tmux_state}."
+echo "CYCLED:new-branch=$new_branch pr=$pr_number prci_active=$prci_active_after_disable prci_enabled=$prci_enabled_after_disable manual_active=$manual_active manual_enabled=$manual_enabled tmux=$tmux_state"

@@ -10,6 +10,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/terminal_classifier.sh"
+
 OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
 
 STATE_FILE="$HOME/Desktop/shadow/heartbeat-dispatch-state.json"
@@ -93,25 +96,9 @@ dismiss_rating_prompt() {
 }
 
 is_terminal_idle() {
-  local pane_text
-  pane_text="$(get_pane_text)"
-  # Busy if actively working — match any "✻ Verbing…" or "✢ Verbing…" or "✽ Verbing…" or "✶ Verbing…" pattern
-  # Also match "Searching for", "Reading", "running stop hooks"
-  if echo "$pane_text" | tail -10 | grep -qE '(✻|✢|✽|✶|·) [A-Z][a-z]+'; then
-    return 1
-  fi
-  if echo "$pane_text" | tail -5 | grep -qE '(Searching for|Reading [0-9]|running stop hooks|ctrl\+o to expand)'; then
-    return 1
-  fi
-  # Idle if we see the prompt character ❯ in recent lines and no active work indicator
-  if echo "$pane_text" | tail -5 | grep -q '❯'; then
-    return 0
-  fi
-  # Also idle if we see "Done." or "All pass" as last output
-  if echo "$pane_text" | tail -5 | grep -qE '(● Done\.|● All .* fixed|● All pass)'; then
-    return 0
-  fi
-  return 1
+  local state
+  state="$(classify_terminal "$TMUX_SESSION")"
+  [[ "$state" == IDLE:* ]]
 }
 
 send_command() {
@@ -129,6 +116,32 @@ alert_telegram() {
     -d "chat_id=780599199" \
     --data-urlencode "text=${msg}" \
     >/dev/null 2>&1 || true
+}
+
+get_repo_slug() {
+  cd "$REPO_DIR" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo ""
+}
+
+count_unresolved_review_threads() {
+  local pr_number="$1"
+  local repo_slug owner repo
+
+  repo_slug="$(get_repo_slug)"
+  [[ -n "$repo_slug" ]] || {
+    echo "0"
+    return 0
+  }
+
+  owner="${repo_slug%%/*}"
+  repo="${repo_slug#*/}"
+
+  gh api graphql \
+    -f owner="$owner" \
+    -f repo="$repo" \
+    -F number="$pr_number" \
+    -f query='query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
+    --jq '[(.data.repository.pullRequest.reviewThreads.nodes // [])[] | select(.isResolved == false)] | length' \
+    2>/dev/null || echo "0"
 }
 
 # ── done-done detection ──────────────────────────────────────────────────────

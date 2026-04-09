@@ -38,6 +38,18 @@ Useful commands:
 
 - `axh` — run the health check
 - `axr` — show the latest watcher + heartbeat snapshot
+
+## Current Status
+
+Manual/agent cron is disabled. Issues:
+
+- `promptSessionAsync` fires and returns immediately without waiting for completion
+- OpenCode `/session/status` endpoint incorrectly reports sessions as "busy" when they're idle
+- Every minute dispatches new prompt while previous is still running (or stuck)
+- Session state detection uses buggy `/session/status` instead of actual message state
+- Attached prompts via detached spawn don't work reliably
+
+This needs a proper blocking implementation that waits for completion before allowing next dispatch.
 - `bash ~/Desktop/shadow/scripts/healthcheck.sh` — run health check directly
 - `bash ~/Desktop/shadow/scripts/recent.sh` — print the current watcher summary
 - `nix-shell -p python313Packages.textual --run '~/Desktop/shadow/scripts/automationctl'` — open the automation control TUI

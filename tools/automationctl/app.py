@@ -31,7 +31,7 @@ INTERVAL_STEPS = ["1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m", "1h"]
 @dataclass(frozen=True)
 class ManagedItem:
     key: str
-    item_type: Literal["timer", "cron"]
+    item_type: Literal["timer", "cron", "repo", "auto"]
     name: str
     status: str
     enabled: str
@@ -127,53 +127,63 @@ def load_cron_map() -> dict[str, tuple[str, str, str | None]]:
 
 def load_items() -> list[ManagedItem]:
     cron_map = load_cron_map()
-
-    timer_units = [
-        ("manual-terminal-nixelo.timer", "nixelo"),
-        ("manual-terminal-starthub.timer", "starthub"),
-        ("agent-terminal-nixelo.timer", "nixelo"),
-        ("agent-terminal-starthub.timer", "starthub"),
-    ]
-
+    
+    # Consolidate: one row per repo (nixelo, starthub)
+    # Determine active mode: manual > agent > pr-ci > off
+    
+    repos = ["nixelo", "starthub"]
     items: list[ManagedItem] = []
-    for unit, target in timer_units:
-        active, enabled, interval = get_timer_state(unit)
+    
+    for repo in repos:
+        manual_timer = f"manual-terminal-{repo}.timer"
+        agent_timer = f"agent-terminal-{repo}.timer"
+        prci_timer = f"prci-terminal-{repo}.timer"
+        
+        # Check manual timer
+        manual_active, manual_enabled, manual_interval = get_timer_state(manual_timer)
+        manual_on = manual_active == "active" and manual_enabled == "enabled"
+        
+        # Check agent timer
+        agent_active, agent_enabled, agent_interval = get_timer_state(agent_timer)
+        agent_on = agent_active == "active" and agent_enabled == "enabled"
+        
+        # Check prci timer (systemd timer, not opencode cron)
+        prci_active, prci_enabled, prci_interval = get_timer_state(prci_timer)
+        prci_on = prci_active == "active" and prci_enabled == "enabled"
+        
+        # Determine mode: priority manual > agent > pr-ci > off
+        if manual_on:
+            mode = "manual"
+            interval = manual_interval
+        elif agent_on:
+            mode = "agent"
+            interval = agent_interval
+        elif prci_on:
+            mode = "pr-ci"
+            interval = prci_interval
+        else:
+            mode = "off"
+            interval = manual_interval  # fallback to manual interval
+        
         items.append(
             ManagedItem(
-                key=f"timer:{unit}",
-                item_type="timer",
-                name=timer_unit_name(unit),
-                status=active,
-                enabled=enabled,
-                target=target,
+                key=f"repo:{repo}",
+                item_type="repo",
+                name=repo,
+                status=mode,
+                enabled=interval or "-",
+                target=repo,
+                cron_id=None,  # prci now uses systemd timer, not opencode cron
                 schedule=interval,
             )
         )
-
-    # --- Synthetic: Auto Nixelo (composite of manual-terminal-nixelo + pr-ci-nixelo) ---
-    nixelo_manual_on = any(
-        i.status == "active" and i.enabled == "enabled"
-        for i in items
-        if i.name == "manual-terminal-nixelo"
-    )
-    nixelo_prci_on = False  # will be set after cron parsing
-
-    cron_targets = {
-        "pr-ci-nixelo": "nixelo",
-        "pr-ci-starthub": "starthub",
-        "Heartbeat": "global",
-        "Morning Sub-Agent Report": "global",
-        "Nightly Sub-Agent Report": "global",
-    }
-
-    for cron_name in ["pr-ci-nixelo", "pr-ci-starthub", "Heartbeat", "Morning Sub-Agent Report", "Nightly Sub-Agent Report"]:
+    
+    # Global cron jobs still as separate rows
+    for cron_name in ["Heartbeat", "Morning Sub-Agent Report", "Nightly Sub-Agent Report"]:
         cron_info = cron_map.get(cron_name)
         cron_id = cron_info[0] if cron_info else None
         status = cron_info[1] if cron_info else "missing"
         schedule = cron_info[2] if cron_info else None
-        if cron_name == "pr-ci-nixelo" and status not in ("disabled", "missing"):
-            nixelo_prci_on = True
-
         items.append(
             ManagedItem(
                 key=f"cron:{cron_name}",
@@ -181,39 +191,28 @@ def load_items() -> list[ManagedItem]:
                 name=cron_name,
                 status=status,
                 enabled="n/a",
-                target=cron_targets[cron_name],
+                target="global",
                 cron_id=cron_id,
                 schedule=schedule,
             )
         )
-
-    # Synthetic Auto Nixelo row — ON/OFF follows explicit state file only.
+    
+    # Add Auto Nixelo toggle row (controls auto-transition when TODOs done)
     auto_nixelo_on = _read_auto_nixelo_state()
-    phase = "manual" if nixelo_manual_on else ("pr-ci" if nixelo_prci_on else "idle")
-
-    # Derive interval from active phase
-    auto_nixelo_schedule: str | None = None
-    if nixelo_manual_on:
-        auto_nixelo_schedule = next((i.schedule for i in items if i.name == "manual-terminal-nixelo"), None)
-    elif nixelo_prci_on:
-        auto_nixelo_schedule = next((i.schedule for i in items if i.name == "pr-ci-nixelo"), None)
-    else:
-        auto_nixelo_schedule = next((i.schedule for i in items if i.name == "manual-terminal-nixelo"), None)
-
     items.insert(
         0,
         ManagedItem(
-            key="synthetic:auto-nixelo",
-            item_type="cron",
+            key="auto-nixelo",
+            item_type="auto",
             name="⚡ Auto Nixelo",
             status="on" if auto_nixelo_on else "off",
-            enabled=f"phase:{phase}",
+            enabled="-",
             target="nixelo",
             cron_id=None,
-            schedule=auto_nixelo_schedule,
-        ),
+            schedule=None,
+        )
     )
-
+    
     return items
 
 
@@ -234,6 +233,33 @@ def _read_auto_nixelo_state() -> bool:
         return bool(data.get("enabled", False))
     except Exception:
         return False
+
+
+def get_tmux_status(session: str) -> str:
+    """Check if tmux session exists and is running OpenCode."""
+    code, output = run_command(["tmux", "has-session", "-t", session])
+    if code != 0:
+        return "off"
+    
+    # Check working directory matches expected repo
+    expected_dirs = {
+        "nixelo": "/home/mikhail/Desktop/nixelo",
+        "starthub": "/home/mikhail/Desktop/StartHub",
+    }
+    expected_dir = expected_dirs.get(session)
+    if expected_dir:
+        code_pwd, pwd_output = run_command(["tmux", "display-message", "-t", session, "-p", "#{pane_current_path}"])
+        if code_pwd == 0 and pwd_output.strip() != expected_dir:
+            return "wrong-dir"
+    
+    # Session exists, check if it's actually running something
+    code2, pane_output = run_command(["tmux", "capture-pane", "-t", session, "-p", "-S", "-5"])
+    if code2 == 0 and pane_output:
+        # Look for OpenCode-like patterns (•, gpt, working, etc)
+        if any(x in pane_output for x in ["gpt-", "Working", "• Ran", "• Edited", "• Waited"]):
+            return "running"
+        return "idle"
+    return "off"
 
 
 def load_cli_preferences() -> dict[str, dict[str, str]]:
@@ -277,7 +303,6 @@ class AutomationCtlApp(App[None]):
         Binding("r", "refresh", "Refresh"),
         Binding("e", "enable_selected", "Enable"),
         Binding("d", "disable_selected", "Disable"),
-        Binding("c", "toggle_cli", "Toggle CLI"),
         Binding("=,+", "interval_up", "Interval =", priority=True),
         Binding("-", "interval_down", "Interval-", priority=True),
         Binding("q", "quit", "Quit"),
@@ -287,7 +312,6 @@ class AutomationCtlApp(App[None]):
         super().__init__()
         self._items: list[ManagedItem] = []
         self._inflight: set[str] = set()
-        self._cli_prefs: dict[str, str] = load_cli_preferences()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -301,7 +325,7 @@ class AutomationCtlApp(App[None]):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Item", "State", "Target", "Interval", "CLI")
+        table.add_columns("Item", "State", "Target", "Interval", "tmux")
         table.cursor_type = "row"
         self.action_refresh()
         self.set_interval(2.0, self._auto_refresh)
@@ -316,8 +340,11 @@ class AutomationCtlApp(App[None]):
     def _state_label(self, item: ManagedItem) -> str:
         if item.key in self._inflight:
             return "PENDING"
-        if item.key == "synthetic:auto-nixelo":
+        if item.item_type == "auto":
             return "ON" if item.status == "on" else "OFF"
+        if item.item_type == "repo":
+            # Status is the mode: manual, agent, pr-ci, or off
+            return item.status.upper()
         if item.item_type == "timer":
             timer_on = item.status == "active" and item.enabled == "enabled"
             return "ON" if timer_on else "OFF"
@@ -325,14 +352,13 @@ class AutomationCtlApp(App[None]):
         return "OFF" if cron_off else "ON"
 
     def _cli_label(self, item: ManagedItem) -> str:
-        lane = self._lane_key(item)
-        if lane is None:
+        return "-"  # Removed - using tmux column instead
+
+    def _tmux_label(self, item: ManagedItem) -> str:
+        target = item.target
+        if target not in ("nixelo", "starthub"):
             return "-"
-        mode = self._mode_key(item)
-        lane_prefs = self._cli_prefs.get(lane, {})
-        if isinstance(lane_prefs, str):
-            return lane_prefs  # legacy fallback
-        return lane_prefs.get(mode, "cdx")
+        return get_tmux_status(target)
 
     def _mode_key(self, item: ManagedItem) -> str:
         """Return 'manual' or 'pr_ci' based on item type."""
@@ -349,11 +375,7 @@ class AutomationCtlApp(App[None]):
         table = self.query_one(DataTable)
         table.clear()
         for item in self._items:
-            if item.key == "synthetic:auto-nixelo":
-                phase = item.enabled.removeprefix("phase:")
-                table.add_row(item.name, self._state_label(item), item.target, self._interval_label(item), phase, key=item.key)
-            else:
-                table.add_row(item.name, self._state_label(item), item.target, self._interval_label(item), self._cli_label(item), key=item.key)
+            table.add_row(item.name, self._state_label(item), item.target, self._interval_label(item), self._tmux_label(item), key=item.key)
 
     def _render_in_place(self) -> None:
         """Update cell values without clearing/re-adding rows (preserves cursor)."""
@@ -363,11 +385,7 @@ class AutomationCtlApp(App[None]):
                 row_key = table.get_row(item.key)  # noqa: check row exists
             except Exception:
                 continue
-            if item.key == "synthetic:auto-nixelo":
-                phase = item.enabled.removeprefix("phase:")
-                vals = (item.name, self._state_label(item), item.target, self._interval_label(item), phase)
-            else:
-                vals = (item.name, self._state_label(item), item.target, self._interval_label(item), self._cli_label(item))
+            vals = (item.name, self._state_label(item), item.target, self._interval_label(item), self._tmux_label(item))
             col_keys = list(table.columns.keys())
             for ci, col_key in enumerate(col_keys):
                 table.update_cell(item.key, col_key, vals[ci])
@@ -377,7 +395,6 @@ class AutomationCtlApp(App[None]):
         table = self.query_one(DataTable)
         cursor_row = table.cursor_coordinate.row if table.row_count > 0 else 0
         self._items = load_items()
-        self._cli_prefs = load_cli_preferences()
         self._render()
         if table.row_count > 0:
             table.move_cursor(row=min(cursor_row, table.row_count - 1), column=0)
@@ -395,7 +412,6 @@ class AutomationCtlApp(App[None]):
             previous_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
 
         self._items = load_items()
-        self._cli_prefs = load_cli_preferences()
         self._render()
 
         if previous_key is not None:
@@ -449,9 +465,6 @@ class AutomationCtlApp(App[None]):
         if item is None:
             self._set_status("No row selected.")
             return
-        if item.key == "synthetic:auto-nixelo":
-            self._set_status("Select the underlying timer/cron to adjust interval.")
-            return
         if not item.schedule or not item.schedule.startswith("every "):
             self._set_status(f"Cannot adjust: {item.schedule or 'no interval'}")
             return
@@ -473,7 +486,14 @@ class AutomationCtlApp(App[None]):
         self._render_in_place()
         self._set_status(f"Changing {item.name} interval: {current} → {new_val}")
 
-        if item.item_type == "cron" and item.cron_id:
+        if item.item_type == "repo":
+            repo = item.name
+            # Adjust manual timer interval (default for repos)
+            unit = f"manual-terminal-{repo}.timer"
+            def _do() -> None:
+                result = self._set_timer_interval(unit, new_val, current)
+                self.call_from_thread(self._on_interval_done, item, result)
+        elif item.item_type == "cron" and item.cron_id:
             def _do() -> None:
                 cmd = [str(OPENCODECTL), "cron", "edit", item.cron_id, "--every", new_val]
                 code, output = run_command(cmd)
@@ -675,16 +695,51 @@ class AutomationCtlApp(App[None]):
     def _run_action(self, action: str, item: ManagedItem) -> str:
         enable = action == "enable"
 
-        # Synthetic Auto Nixelo: controls only the auto-transition kill switch.
-        # It must NOT directly toggle manual/pr-ci runtime states.
-        if item.key == "synthetic:auto-nixelo":
+        # Auto toggle: just set the state file
+        if item.item_type == "auto":
             _write_auto_nixelo_state(enable)
-            return f"Auto Nixelo kill switch set to {'ON' if enable else 'OFF'} (no runtime timers/crons changed)."
+            return f"Auto Nixelo {'ON' if enable else 'OFF'} - controls automatic transition from manual to pr-ci when TODOs are done."
 
-        if enable:
-            gate_err = self._validate_enable_gate(item)
-            if gate_err:
-                return gate_err
+        # Repo item: enable/disable based on mode switching
+        # Enable: off -> manual, manual -> agent, agent -> pr-ci, pr-ci -> pr-ci (noop)
+        # Disable: manual -> off, agent -> manual, pr-ci -> off
+        if item.item_type == "repo":
+            repo = item.name
+            current_mode = item.status  # off, manual, agent, pr-ci
+            
+            if enable:
+                # Cycle through modes: off -> manual -> agent -> pr-ci -> pr-ci
+                if current_mode == "off":
+                    # Enable manual timer
+                    timer = f"manual-terminal-{repo}.timer"
+                    return self._set_systemd_timer(timer, True)
+                elif current_mode == "manual":
+                    # Switch to agent timer
+                    manual_timer = f"manual-terminal-{repo}.timer"
+                    agent_timer = f"agent-terminal-{repo}.timer"
+                    self._set_systemd_timer(manual_timer, False)
+                    return self._set_systemd_timer(agent_timer, True)
+                elif current_mode == "agent":
+                    # Switch to pr-ci timer (systemd timer, not opencode cron)
+                    manual_timer = f"manual-terminal-{repo}.timer"
+                    agent_timer = f"agent-terminal-{repo}.timer"
+                    prci_timer = f"prci-terminal-{repo}.timer"
+                    self._set_systemd_timer(manual_timer, False)
+                    self._set_systemd_timer(agent_timer, False)
+                    return self._set_systemd_timer(prci_timer, True)
+                else:
+                    return f"Already in {current_mode} mode, no change."
+            else:
+                # Disable: go to off (disable all timers)
+                if current_mode == "off":
+                    return "Already off."
+                manual_timer = f"manual-terminal-{repo}.timer"
+                agent_timer = f"agent-terminal-{repo}.timer"
+                prci_timer = f"prci-terminal-{repo}.timer"
+                self._set_systemd_timer(manual_timer, False)
+                self._set_systemd_timer(agent_timer, False)
+                self._set_systemd_timer(prci_timer, False)
+                return f"Disabled {repo} (manual, agent, pr-ci all off)"
 
         if item.item_type == "timer":
             install_log = self._ensure_timer_installed(item.name) if enable else ""

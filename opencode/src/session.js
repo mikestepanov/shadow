@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-import { listSessionMessages, listSessions, sessionExists } from "./client.js";
+import { getSessionById, listSessionMessages, listSessions, promptSessionAsync, sessionExists } from "./client.js";
 import { getLaneConfig } from "./lanes.js";
 import { resolveOpencodeVarPath, resolveRepoPath } from "./paths.js";
 
@@ -182,35 +182,52 @@ async function createAttachedSession(repo, config) {
 }
 
 async function dispatchAttachedPrompt(sessionId, config, prompt) {
-  const child = spawn(
-    OPENCODE_BIN,
-    [
-      "run",
-      "--attach",
-      "http://127.0.0.1:4096",
-      "--session",
+  try {
+    await promptSessionAsync(sessionId, {
+      parts: [{ type: "text", text: prompt }],
+    });
+
+    const maxWait = 120000;
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const messages = await listSessionMessages(sessionId, { limit: 1 });
+      if (Array.isArray(messages) && messages[0]) {
+        const msg = messages[0];
+        const role = msg?.info?.role;
+        const finish = msg?.info?.finish;
+        const parts = Array.isArray(msg?.parts) ? msg.parts : [];
+        
+        const runningTools = parts.filter((p) => p?.state?.status === "running");
+        if (runningTools.length > 0) {
+          const toolTimes = runningTools.map((t) => t?.state?.time?.start || 0).filter(Number.isFinite);
+          if (toolTimes.length > 0) {
+            const oldestTool = Math.min(...toolTimes);
+            if (Date.now() - oldestTool > 180000) {
+              return { ok: true, sessionId, accepted: true, stale: true, recovered: true };
+            }
+          }
+        }
+        
+        const hasRunning = parts.some((p) => p?.state?.status === "running");
+        if (role === "assistant" && (finish === "stop" || finish === "error")) {
+          return { ok: true, sessionId, completed: true };
+        }
+        if (!hasRunning && role === "assistant") {
+          return { ok: true, sessionId, completed: true };
+        }
+      }
+    }
+
+    return { ok: true, sessionId, accepted: true, waited: true };
+  } catch (err) {
+    return {
+      ok: false,
       sessionId,
-      "--dir",
-      config.dir,
-      "--format",
-      "json",
-      prompt,
-    ],
-    {
-      cwd: config.dir,
-      env: process.env,
-      detached: true,
-      stdio: ["ignore", "ignore", "ignore"],
-    },
-  );
-
-  child.unref();
-
-  return {
-    ok: true,
-    sessionId,
-    accepted: true,
-  };
+      accepted: false,
+      error: String(err),
+    };
+  }
 }
 
 async function readTodoStats(config) {
@@ -266,6 +283,18 @@ function latestMessageState(message) {
   const role = message?.info?.role;
   const finish = message?.info?.finish;
   const parts = Array.isArray(message?.parts) ? message.parts : [];
+  
+  const runningTools = parts.filter((p) => p?.state?.status === "running");
+  if (runningTools.length > 0) {
+    const toolTimes = runningTools.map((t) => t?.state?.time?.start || 0).filter(Number.isFinite);
+    if (toolTimes.length > 0) {
+      const oldestTool = Math.min(...toolTimes);
+      if (Date.now() - oldestTool > 300000) {
+        return "stale";
+      }
+    }
+  }
+  
   if (role === "assistant") {
     if (finish === "stop") {
       return "idle";
@@ -278,7 +307,8 @@ function latestMessageState(message) {
     }
   }
   if (role === "user") {
-    return "busy";
+    const hasAssistantResponse = parts.some((part) => part?.type === "step-start");
+    return hasAssistantResponse ? "busy" : "waiting";
   }
   return "unknown";
 }
@@ -371,23 +401,77 @@ async function setOpencodeCron(cronId, enable) {
   }).catch(() => {});
 }
 
+export async function getLiveSessionForRepo(repo) {
+  const store = await loadManualSessionStore();
+  const existing = store[repo];
+  if (existing?.sessionId) {
+    try {
+      const session = await getSessionById(existing.sessionId);
+      if (session) {
+        return session;
+      }
+    } catch {
+    }
+  }
+  
+  const config = manualConfig(repo);
+  if (!config) return null;
+  
+  const sessions = await listSessions({ all: true });
+  const sessionList = Array.isArray(sessions) ? sessions : [];
+  
+  for (const session of sessionList) {
+    const dir = session?.directory || "";
+    const title = session?.title || "";
+    const titleLower = title.toLowerCase();
+    const queryLower = config.title.toLowerCase();
+    if (dir === config.dir || titleLower === queryLower || titleLower.startsWith(queryLower)) {
+      return session;
+    }
+  }
+  return null;
+}
+
 export async function ensureManualSession(repo) {
   const config = manualConfig(repo);
   if (!config) {
     return { ok: false, error: `Unknown manual repo ${repo}` };
   }
 
-  const store = await loadManualSessionStore();
-  const existing = store[repo];
-  if (typeof existing?.sessionId === "string" && (await sessionExists(existing.sessionId))) {
+  const liveSession = await getLiveSessionForRepo(repo);
+  if (liveSession) {
+    const store = await loadManualSessionStore();
+    store[repo] = {
+      sessionId: liveSession.id,
+      title: config.title,
+      directory: config.dir,
+      updatedAt: Date.now(),
+    };
+    await saveManualSessionStore(store);
     return {
       ok: true,
       repo,
-      sessionId: existing.sessionId,
+      sessionId: liveSession.id,
       created: false,
       title: config.title,
       directory: config.dir,
     };
+  }
+
+  const store = await loadManualSessionStore();
+  const existing = store[repo];
+  if (typeof existing?.sessionId === "string") {
+    const stillAlive = await getLiveSessionForRepo(repo);
+    if (stillAlive) {
+      return {
+        ok: true,
+        repo,
+        sessionId: stillAlive.id,
+        created: false,
+        title: config.title,
+        directory: config.dir,
+      };
+    }
   }
 
   const sessionId = await createAttachedSession(repo, config);

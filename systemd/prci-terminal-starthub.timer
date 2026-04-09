@@ -1,0 +1,10 @@
+[Unit]
+Description=Run PR-CI terminal nudge for starthub every 5 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+Unit=prci-terminal-starthub.service
+
+[Install]
+WantedBy=timers.target

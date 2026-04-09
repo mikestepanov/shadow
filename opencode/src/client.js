@@ -6,7 +6,11 @@ function joinUrl(baseUrl, path) {
 
 export async function fetchJson(path, options = {}) {
   const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
-  const response = await fetch(joinUrl(baseUrl, path), {
+  let url = joinUrl(baseUrl, path);
+  if (options.all) {
+    url += (url.includes('?') ? '&' : '?') + 'all=true';
+  }
+  const response = await fetch(url, {
     headers: {
       accept: "application/json",
       ...(options.headers || {}),
@@ -49,7 +53,7 @@ export async function listSessions(options = {}) {
 }
 
 export async function getSession(sessionId, options = {}) {
-  const sessions = await listSessions(options);
+  const sessions = await listSessions({ all: true });
   const sessionList = Array.isArray(sessions) ? sessions : [];
   return (
     sessionList.find((session) => {
@@ -57,6 +61,22 @@ export async function getSession(sessionId, options = {}) {
       return id === sessionId;
     }) || null
   );
+}
+
+export async function getSessionById(sessionId, options = {}) {
+  const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
+  const url = `${baseUrl.replace(/\/$/, "")}/session/${sessionId}`;
+  try {
+    const response = await fetch(url, {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 export async function getSessionStatuses(options = {}) {

@@ -21,7 +21,7 @@ fi
 case "$REPO" in
   nixelo)
     REPO_DIR="$HOME/Desktop/nixelo"
-    TARGET_BRANCH="main"
+    TARGET_BRANCH="dev"
     OWNER="NixeloApp"
     REPO_NAME="nixelo"
     ;;

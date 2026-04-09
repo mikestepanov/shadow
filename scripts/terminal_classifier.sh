@@ -67,7 +67,15 @@ _process_tree() {
 _has_child_runners() {
   local tree="$1"
   # Exclude shell, codex, and claude agent lines — they are the terminal host, not child runners
-  printf '%s\n' "$tree" | grep -Ev '(bash|codex|claude|MainThread)' | grep -Eiq "$RUNNER_RE"
+  # Also exclude LSP/language server processes that are always running but not actual work
+  local filtered
+  filtered=$(printf '%s\n' "$tree" | grep -Ev '(bash|codex|claude|MainThread|opencode|tsserver|biome|lsp-proxy|typingsInstaller)')
+  while IFS= read -r line; do
+    if printf '%s\n' "$line" | grep -qE "$RUNNER_RE"; then
+      return 0
+    fi
+  done <<< "$filtered"
+  return 1
 }
 
 _pane_text() {
@@ -89,10 +97,20 @@ _cursor_on_prompt() {
   local cy pline
   cy=$(_cursor_y "$pane")
   [[ -z "$cy" || ! "$cy" =~ ^[0-9]+$ ]] && return 1
-  pline=$(_pane_text "$pane" | sed -n "$((cy+1))p" || true)
-  # Normalize non-breaking spaces
-  pline=$(printf '%s' "$pline" | tr '\302\240' ' ')
-  printf '%s\n' "$pline" | grep -Eq "$PROMPT_RE"
+  
+  # OpenCode has a status bar UI that appears after the prompt
+  # So we need to look for > anywhere in the pane, not just below cursor
+  local all_text
+  all_text=$(_pane_text "$pane")
+  # Check if there's any > prompt in the pane
+  if printf '%s\n' "$all_text" | grep -q "^ *>"; then
+    return 0
+  fi
+  # Also check for models like "gpt-" which indicate OpenCode is ready
+  if echo "$all_text" | grep -qi "gpt"; then
+    return 0
+  fi
+  return 1
 }
 
 _work_indicator_near_cursor() {
@@ -103,7 +121,8 @@ _work_indicator_near_cursor() {
   (( cy < 5 )) && return 1
   local above
   above=$(_pane_text "$pane" | sed -n "$((cy-4)),$((cy))p")
-  printf '%s\n' "$above" | grep -Eiq "$WORK_INDICATOR_RE"
+  # Only return busy if there's an actual "Working (" indicator, not just UI elements like Build/GPT-5.4
+  printf '%s\n' "$above" | grep -Eiq "Working \("
 }
 
 # ── Main classifier ────────────────────────────────────────────────

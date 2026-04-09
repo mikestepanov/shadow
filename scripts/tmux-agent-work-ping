@@ -26,38 +26,23 @@ fi
 pane="$(tmux list-panes -t "$session" -F '#{pane_id}' | head -n1)"
 target="$pane"
 
-# shared guard functions
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./terminal_mode_guard.sh
+source "$SCRIPT_DIR/terminal_classifier.sh"
 source "$SCRIPT_DIR/terminal_mode_guard.sh"
 
-has_error_loop() {
-  local text="$1"
-  printf '%s\n' "$text" | grep -Eiq '(-bash: .*command not found|syntax error near unexpected token|parse error|Traceback)'
-}
+state="$(classify_terminal "$session")"
+if [[ "$state" == BUSY:* ]]; then
+  echo "NOOP:terminal-busy role=${role} session=${session} state=$state"
+  exit 0
+fi
+if [[ "$state" == STUCK:* ]]; then
+  echo "NOOP:terminal-stuck role=${role} session=${session} state=$state"
+  exit 0
+fi
 
 path_now="$(tmux display-message -p -t "$pane" '#{pane_current_path}')"
 if [[ "$path_now" != "$workdir" ]]; then
   echo "SKIP role=${role} session=${session} reason=path-mismatch current=$path_now expected=$workdir"
-  exit 0
-fi
-
-mode="$(mode_from_tree "$pane")"
-if [[ "$mode" != "cc" ]]; then
-  echo "SKIP role=${role} session=${session} reason=mode-not-cc mode=$mode"
-  exit 0
-fi
-
-if is_terminal_busy "$pane"; then
-  pane_cmd="$(tmux display-message -p -t "$pane" '#{pane_current_command}')"
-  reason="$(busy_reason "$pane")"
-  echo "NOOP:terminal-busy role=${role} session=${session} mode=$mode pane_cmd=$pane_cmd reason=$reason"
-  exit 0
-fi
-
-pane_tail="$(tmux capture-pane -t "$target" -p | tail -30)"
-if has_error_loop "$pane_tail"; then
-  echo "SKIP role=${role} session=${session} reason=error-loop-detected"
   exit 0
 fi
 
@@ -73,8 +58,8 @@ EOF2
 )"
 
 send_tmux_text_enter "$target" "$msg" || {
-  echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-ping role=${role} session=${session} reason=$(busy_reason "$pane")"
+  echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-ping role=${role} session=${session}"
   exit 0
 }
 
-echo "SENT role=${role} session=${session} mode=${mode}"
+echo "SENT role=${role} session=${session}"

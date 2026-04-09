@@ -7,7 +7,7 @@
 #   1. Check done-done gates (CI green, 0 ahead, no changes requested)
 #   2. Disable PR-CI cron
 #   3. Merge PR (squash + delete branch)
-#   4. Checkout target branch (nixelo→main, starthub→dev)
+#   4. Checkout target branch (nixelo→dev, starthub→dev)
 #   5. Pull
 #
 # Exit codes:
@@ -32,7 +32,7 @@ fi
 case "$REPO" in
   nixelo)
     REPO_DIR="$HOME/Desktop/nixelo"
-    TARGET_BRANCH="main"
+    TARGET_BRANCH="dev"
     PR_CI_CRON_ID="c1ac22ab-b891-4b8f-bbdb-ea9fe9d0825c"
     ;;
   starthub)
