@@ -82,6 +82,46 @@ get_current_hash() {
   cd "$REPO_DIR" && git log -1 --format="%h" 2>/dev/null || echo "unknown"
 }
 
+get_ahead_count() {
+  cd "$REPO_DIR"
+  local branch
+  branch="$(git branch --show-current 2>/dev/null || echo "")"
+  [[ -n "$branch" ]] || {
+    echo "unknown"
+    return 0
+  }
+
+  git rev-list --count "origin/${branch}..${branch}" 2>/dev/null || echo "unknown"
+}
+
+push_current_branch_if_needed() {
+  cd "$REPO_DIR"
+  local branch ahead
+  branch="$(git branch --show-current 2>/dev/null || echo "")"
+  [[ -n "$branch" ]] || {
+    echo "NOOP:push-state-unknown — could not determine current branch"
+    return 1
+  }
+
+  ahead="$(git rev-list --count "origin/${branch}..${branch}" 2>/dev/null || echo "unknown")"
+  if [[ "$ahead" == "unknown" ]]; then
+    echo "NOOP:push-state-unknown — could not determine whether branch is ahead"
+    return 1
+  fi
+
+  if [[ "$ahead" == "0" ]]; then
+    return 1
+  fi
+
+  if git push origin "$branch" >/dev/null 2>&1; then
+    echo "PUSHED:branch=${branch} ahead=${ahead}"
+    return 0
+  fi
+
+  echo "ERROR:push-failed branch=${branch} ahead=${ahead}"
+  return 2
+}
+
 get_pane_text() {
   tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | tail -20
 }
@@ -144,6 +184,22 @@ count_unresolved_review_threads() {
     -F number="$pr_number" \
     -f query='query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
     --jq '[(.data.repository.pullRequest.reviewThreads.nodes // [])[] | select(.isResolved == false)] | length' \
+    2>/dev/null || echo "0"
+}
+
+count_new_human_review_comments() {
+  local pr_number="$1"
+  local last_commit_date
+
+  cd "$REPO_DIR"
+  last_commit_date="$(git log -1 --format=%cI 2>/dev/null || echo "")"
+  [[ -n "$last_commit_date" ]] || {
+    echo "0"
+    return 0
+  }
+
+  gh api "repos/{owner}/{repo}/pulls/${pr_number}/comments" \
+    --jq "[.[] | select(.created_at > \"${last_commit_date}\") | select(.user.type == \"User\")] | length" \
     2>/dev/null || echo "0"
 }
 

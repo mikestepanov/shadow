@@ -102,6 +102,21 @@ check_ci_status() {
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+if push_output="$(push_current_branch_if_needed)"; then
+  echo "$push_output"
+  exit 0
+else
+  push_rc=$?
+  if [[ $push_rc -eq 2 ]]; then
+    echo "$push_output"
+    exit 1
+  fi
+  if [[ -n "${push_output:-}" ]]; then
+    echo "$push_output"
+    exit 0
+  fi
+fi
+
 CI_STATUS="$(check_ci_status)"
 
 case "$CI_STATUS" in
@@ -115,13 +130,15 @@ case "$CI_STATUS" in
       
       unresolved_threads="$(count_unresolved_review_threads "$pr_number")"
       unresolved_threads=${unresolved_threads:-0}
+      new_human_comments="$(count_new_human_review_comments "$pr_number")"
+      new_human_comments=${new_human_comments:-0}
       
-      if [[ "$unresolved_threads" -gt 0 || "$review_decision" == "CHANGES_REQUESTED" ]]; then
+      if [[ "$unresolved_threads" -gt 0 || "$new_human_comments" -gt 0 || "$review_decision" == "CHANGES_REQUESTED" ]]; then
         # There are unresolved review issues - send fix command
         dismiss_rating_prompt
         if is_terminal_idle; then
           send_command "/fix-pr-comments"
-          echo "OK: CI ${CI_STATUS} but unresolved review issues found ($unresolved_threads threads), dispatched /fix-pr-comments"
+          echo "OK: CI ${CI_STATUS} but review issues found (${unresolved_threads} threads, ${new_human_comments} new human comments), dispatched /fix-pr-comments"
         else
           echo "NOOP:terminal-busy — review issues found but terminal working"
         fi
