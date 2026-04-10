@@ -18,15 +18,15 @@ What lives here:
 
 Observed control planes:
 
-- systemd user units: `watcher.timer`, `manual-terminal-*`, `agent-terminal-*`
-- manual and agent terminal timers dispatch OpenCode sessions; they no longer send tmux input
-- OpenCode cron jobs: `Heartbeat`, `pr-ci-nixelo`, `pr-ci-starthub`
+- systemd user units: `watcher.timer`, `manual-terminal-*`, `agent-terminal-*`, `prci-terminal-*`, `opencode-auto-nixelo.timer`
+- `manual-terminal-*`, `agent-terminal-*`, and `prci-terminal-*` are the live terminal automation control plane
+- OpenCode cron jobs still exist in local state, but nixelo PR-CI is currently driven by systemd timers, not the old OpenCode `pr-ci-*` cron jobs
 
 Conversation terminology:
 
 - Treat both systemd timer automation and OpenCode cron jobs as "cron" in user-facing conversation.
-- If precision matters, say "manual cron" / "timer cron" for `manual-terminal-*` or `agent-terminal-*`, and "PR-CI cron" / "OpenCode cron" for `pr-ci-*`.
-- Do not imply that only `pr-ci-*` counts as cron-enabled automation.
+- If precision matters, say `manual timer`, `agent timer`, `PR-CI timer`, or `auto-cycle timer` for the systemd path.
+- Do not claim which mode nixelo is in from memory or docs. Check live timer state first with `systemctl --user status manual-terminal-nixelo.timer prci-terminal-nixelo.timer opencode-auto-nixelo.timer`.
 
 Operational rule:
 
@@ -41,15 +41,24 @@ Useful commands:
 
 ## Current Status
 
-Manual/agent cron is disabled. Issues:
+Nixelo currently uses a systemd-first automation loop:
 
-- `promptSessionAsync` fires and returns immediately without waiting for completion
-- OpenCode `/session/status` endpoint incorrectly reports sessions as "busy" when they're idle
-- Every minute dispatches new prompt while previous is still running (or stuck)
-- Session state detection uses buggy `/session/status` instead of actual message state
-- Attached prompts via detached spawn don't work reliably
+- `manual-terminal-nixelo.timer` = manual TODO work mode
+- `prci-terminal-nixelo.timer` = PR review / fix mode
+- `opencode-auto-nixelo.timer` = done-done watcher and branch-cycle automation
 
-This needs a proper blocking implementation that waits for completion before allowing next dispatch.
+Expected nixelo lifecycle:
+
+- manual mode works the TODO branch
+- when work transitions to PR review, PR-CI timer takes over
+- `opencode-auto-nixelo.timer` checks done-done every minute
+- when done-done passes, auto-cycle disables PR-CI, merges, checks out `dev`, creates a new date branch, and re-enables manual mode
+
+Important:
+
+- the live mode can change over time; always verify it from systemd before stating it
+- `manual-terminal-nixelo.timer` and `prci-terminal-nixelo.timer` are mutually exclusive in the intended steady state
+- `opencode-auto-nixelo.timer` can remain active while either manual or PR-CI mode is active
 - `bash ~/Desktop/shadow/scripts/healthcheck.sh` — run health check directly
 - `bash ~/Desktop/shadow/scripts/recent.sh` — print the current watcher summary
 - `nix-shell -p python313Packages.textual --run '~/Desktop/shadow/scripts/automationctl'` — open the automation control TUI

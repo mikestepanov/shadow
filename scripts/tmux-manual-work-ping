@@ -63,9 +63,6 @@ if [[ "$path_now" != "$workdir" ]]; then
   exit 0
 fi
 
-send_tmux_text_enter "$target" "$msg"
-echo "SENT manual session=${session} msg=${msg:0:50}..."
-
 # shared guard functions
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/terminal_classifier.sh"

@@ -90,7 +90,9 @@ dismiss_rating_prompt() {
   local pane_text
   pane_text="$(get_pane_text)"
   if echo "$pane_text" | grep -q "How is Claude doing"; then
-    tmux send-keys -t "$TMUX_SESSION" "0" Enter
+    tmux send-keys -t "$TMUX_SESSION" -l -- "0"
+    sleep 1
+    tmux send-keys -t "$TMUX_SESSION" Enter
     sleep 2
   fi
 }
@@ -103,7 +105,8 @@ is_terminal_idle() {
 
 send_command() {
   local cmd="$1"
-  tmux send-keys -t "$TMUX_SESSION" "$cmd"
+  tmux send-keys -t "$TMUX_SESSION" -l -- "$cmd"
+  sleep 1
   tmux send-keys -t "$TMUX_SESSION" Enter
 }
 

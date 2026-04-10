@@ -13,7 +13,7 @@ pane="$(tmux list-panes -t "$session" -F '#{pane_id}' | head -n1)"
 state="$(classify_terminal "$session")"
 echo "terminal_state: $state"
 
-if is_idle "$session"; then
+if [[ "$state" == IDLE:* ]]; then
   echo "RESULT: IDLE"
 else
   echo "RESULT: NOT_IDLE"
