@@ -11,3 +11,9 @@ send_tmux_text_enter() {
   tmux send-keys -t "$target" Enter
   sleep 0.12
 }
+
+submit_tmux_enter() {
+  local target="$1"
+  tmux send-keys -t "$target" Enter
+  sleep 0.12
+}

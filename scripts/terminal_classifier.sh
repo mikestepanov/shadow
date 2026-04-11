@@ -17,11 +17,12 @@
 #   - If queue marker visible → BUSY, no exceptions
 #   - If content changing → BUSY, no exceptions
 #   - IDLE only when ALL of: no runners, no queue, content static, cursor on prompt
-#   - STUCK when: content static + no runners + no prompt (wedged UI state)
+#   - STUCK when: content static + no runners + no prompt + no recognizable ready UI
 set -euo pipefail
 
 # ── Tuning ──────────────────────────────────────────────────────────
 CONTENT_PROBE_DELAY="${CONTENT_PROBE_DELAY:-2}"  # seconds between snapshots
+SEND_STABILITY_DELAY="${SEND_STABILITY_DELAY:-3}"
 
 # Volatile patterns stripped before content-diff (timers, progress, counters)
 VOLATILE_STRIP='/(Working \(|Waiting for|esc to interrupt|% left|background terminal|·.*running|Worked for|Messages to be submitted)/d'
@@ -30,13 +31,16 @@ VOLATILE_STRIP='/(Working \(|Waiting for|esc to interrupt|% left|background term
 RUNNER_RE='(pnpm|npm|npx|tsx|playwright|vitest|jest|tsc|pytest|python|gradle|mvn|docker|kubectl|aws|curl|wget|make|sh|bash.*-c|go test|cargo test|node.*playwright|node.*jest|node.*vitest)'
 
 # Queue marker patterns (agnostic across Codex/Claude/Gemini)
-QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued messages)'
+QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued messages|^[[:space:]]*QUEUED[[:space:]]*$)'
 
 # Prompt glyphs
 PROMPT_RE='^[[:space:]]*(>|›|❯)([[:space:]]*$|[[:space:]]+.*)'
 
 # Active work indicators (only meaningful within 5 lines of cursor)
 WORK_INDICATOR_RE='(Working \(|esc to interrupt|Waiting for background terminal)'
+
+# OpenCode footer markers that indicate the static UI is still interactive
+OPENCODE_READY_RE='(ctrl\+p commands|OpenCode [0-9])'
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -94,23 +98,16 @@ _content_hash() {
 
 _cursor_on_prompt() {
   local pane="$1"
-  local cy pline
+  local cy start end window_text
   cy=$(_cursor_y "$pane")
   [[ -z "$cy" || ! "$cy" =~ ^[0-9]+$ ]] && return 1
-  
-  # OpenCode has a status bar UI that appears after the prompt
-  # So we need to look for > anywhere in the pane, not just below cursor
-  local all_text
-  all_text=$(_pane_text "$pane")
-  # Check if there's any > prompt in the pane
-  if printf '%s\n' "$all_text" | grep -q "^ *>"; then
-    return 0
-  fi
-  # Also check for models like "gpt-" which indicate OpenCode is ready
-  if echo "$all_text" | grep -qi "gpt"; then
-    return 0
-  fi
-  return 1
+
+  start=$((cy - 2))
+  end=$((cy + 2))
+  (( start < 1 )) && start=1
+
+  window_text=$(_pane_text "$pane" | sed -n "${start},${end}p")
+  printf '%s\n' "$window_text" | grep -Eq "$PROMPT_RE"
 }
 
 _work_indicator_near_cursor() {
@@ -123,6 +120,11 @@ _work_indicator_near_cursor() {
   above=$(_pane_text "$pane" | sed -n "$((cy-4)),$((cy))p")
   # Only return busy if there's an actual "Working (" indicator, not just UI elements like Build/GPT-5.4
   printf '%s\n' "$above" | grep -Eiq "Working \("
+}
+
+_looks_like_opencode_ready_ui() {
+  local pane="$1"
+  _pane_text "$pane" | tail -12 | grep -Eiq "$OPENCODE_READY_RE"
 }
 
 # ── Main classifier ────────────────────────────────────────────────
@@ -208,7 +210,15 @@ classify_terminal() {
     return
   fi
 
-  # ── Layer 5: Prompt cursor position ──
+  # ── Layer 5: Static ready UI detection ──
+  # OpenCode can be ready for input even when the visible prompt is not rendered
+  # near the cursor (completed response screen, static footer-only state).
+  if [[ "$pane_cmd" == "opencode" ]] && _looks_like_opencode_ready_ui "$pane"; then
+    echo "IDLE:opencode-static"
+    return
+  fi
+
+  # ── Layer 6: Prompt cursor position ──
   # Content is static, no runners, no queue — check if cursor is on prompt
   if _cursor_on_prompt "$pane"; then
     echo "IDLE:prompt"
@@ -237,6 +247,26 @@ is_stuck() {
   local state
   state=$(classify_terminal "$1")
   [[ "$state" == STUCK:* ]]
+}
+
+classify_terminal_for_send() {
+  local session="$1"
+  local state
+
+  state=$(classify_terminal "$session")
+  if [[ "$state" != IDLE:* ]]; then
+    echo "$state"
+    return
+  fi
+
+  sleep "$SEND_STABILITY_DELAY"
+  classify_terminal "$session"
+}
+
+is_idle_for_send() {
+  local state
+  state=$(classify_terminal_for_send "$1")
+  [[ "$state" == IDLE:* ]]
 }
 
 # CLI mode detection (reused from old guard)

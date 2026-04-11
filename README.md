@@ -39,6 +39,12 @@ Useful commands:
 - `axh` — run the health check
 - `axr` — show the latest watcher + heartbeat snapshot
 
+Shell shortcut source of truth:
+
+- `~/Desktop/shadow/nixos/common.nix` is the source of truth for shell helpers such as `nixelo`, `starthub`, and `axon`
+- the live generated bash config is `/etc/bashrc`; verify there before claiming the NixOS config is missing a helper
+- check `type nixelo` and `~/.bashrc` before debugging `nixelo` failures, because user dotfiles can mask the NixOS-defined function with an alias or another function
+
 ## Current Status
 
 Nixelo currently uses a systemd-first automation loop:

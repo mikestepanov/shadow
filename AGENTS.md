@@ -67,6 +67,11 @@ This file contains the single source of truth for:
 2. **Status**: Check `git status` and `git log` to understand recent activity.
 3. **Plan**: Validate understanding before writing code.
 
+### Shell Shortcut Verification
+- For shell helpers like `nixelo`, `starthub`, and `axon`, treat `~/Desktop/shadow/nixos/common.nix` as the repo source of truth.
+- Verify the live generated config in `/etc/bashrc` before claiming the NixOS config is wrong or missing.
+- Run `type nixelo` and inspect `~/.bashrc` for masking aliases/functions before concluding the problem is in `shadow`.
+
 ### Code Validation (Run after completing a significant chunk of work)
 1. **Run `pnpm fixme`** after finishing a feature, multi-file refactor, or major bug fix. This auto-fixes lint/format, rebuilds shared packages, and typechecks. Do NOT run after every small edit — only when a logical unit of work is done.
 2. **Verify**: Check imports if modifying exports.
@@ -127,4 +132,3 @@ kubectl apply -f infrastructure/k8s/jobs/seed-prod.yaml
 - **BE PROACTIVE**: Suggest improvements (e.g., "Want me to apply this pattern elsewhere?").
 - **SELF-CORRECT**: If you make a mistake, admit it and fix it with a new commit.
 - **CHECK BEFORE SPEAKING**: Don't guess. Run the command, read the file, verify the state. Then report what you found.
-

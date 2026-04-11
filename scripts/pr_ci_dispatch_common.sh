@@ -12,6 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/terminal_classifier.sh"
+source "$SCRIPT_DIR/terminal_mode_guard.sh"
 
 OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
 
@@ -126,28 +127,41 @@ get_pane_text() {
   tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | tail -20
 }
 
+get_pane_target() {
+  tmux list-panes -t "$TMUX_SESSION" -F '#{pane_id}' 2>/dev/null | head -n1
+}
+
 dismiss_rating_prompt() {
   local pane_text
+  local pane_target
   pane_text="$(get_pane_text)"
+  pane_target="$(get_pane_target)"
   if echo "$pane_text" | grep -q "How is Claude doing"; then
-    tmux send-keys -t "$TMUX_SESSION" -l -- "0"
-    sleep 1
-    tmux send-keys -t "$TMUX_SESSION" Enter
+    [[ -n "$pane_target" ]] || return 0
+    send_tmux_text_enter "$pane_target" "0"
     sleep 2
   fi
 }
 
 is_terminal_idle() {
   local state
-  state="$(classify_terminal "$TMUX_SESSION")"
+  state="$(classify_terminal_for_send "$TMUX_SESSION")"
   [[ "$state" == IDLE:* ]]
 }
 
 send_command() {
   local cmd="$1"
-  tmux send-keys -t "$TMUX_SESSION" -l -- "$cmd"
-  sleep 1
-  tmux send-keys -t "$TMUX_SESSION" Enter
+  local pane_target pane_text
+  pane_target="$(get_pane_target)"
+  [[ -n "$pane_target" ]] || return 1
+
+  pane_text="$(get_pane_text)"
+  if printf '%s\n' "$pane_text" | grep -Eq "^ *${cmd//"/\"}[[:space:]]*$"; then
+    submit_tmux_enter "$pane_target"
+    return 0
+  fi
+
+  send_tmux_text_enter "$pane_target" "$cmd"
 }
 
 alert_telegram() {

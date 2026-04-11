@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/terminal_classifier.sh"
 source "$SCRIPT_DIR/terminal_mode_guard.sh"
 
-state="$(classify_terminal "$session")"
+state="$(classify_terminal_for_send "$session")"
 if [[ "$state" == BUSY:* ]]; then
   echo "NOOP:terminal-busy role=${role} session=${session} state=$state"
   exit 0

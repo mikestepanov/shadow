@@ -1,0 +1,6 @@
+[Unit]
+Description=Manual terminal nudge for %i tmux session
+
+[Service]
+Type=oneshot
+ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-manual-work-ping %i

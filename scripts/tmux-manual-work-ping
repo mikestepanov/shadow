@@ -23,12 +23,12 @@ case "$session" in
   nixelo)
     workdir="$HOME/Desktop/nixelo"
     todo_file="todos-hot/README.md"
-    msg="Read ${todo_file}. Pick the single highest-impact open item. Implement it completely and robustly — proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
+    msg="Read ${todo_file}. First remove completed items from the TODO list, preserving the remaining order. Then pick the first remaining open item and implement it completely and robustly: proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
     ;;
   starthub)
     workdir="$HOME/Desktop/StartHub"
     todo_file="todos/planning/postgres-migration.md"
-    msg="Read ${todo_file}. Pick the single highest-impact open item. Implement it completely and robustly — proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
+    msg="Read ${todo_file}. First remove completed items from the TODO list, preserving the remaining order. Then pick the first remaining open item and implement it completely and robustly: proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
     ;;
   *)
     echo "invalid session: $session" >&2
@@ -63,35 +63,10 @@ if [[ "$path_now" != "$workdir" ]]; then
   exit 0
 fi
 
-# shared guard functions
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/terminal_classifier.sh"
-source "$SCRIPT_DIR/terminal_mode_guard.sh"
-
 has_error_loop() {
   local text="$1"
   printf '%s\n' "$text" | grep -Eiq '(-bash: .*command not found|syntax error near unexpected token|parse error|Traceback)'
 }
-
-# FIRST: unified classifier — process-tree-first, no screen-scraping race
-state="$(classify_terminal "$session")"
-if [[ "$state" == BUSY:* ]]; then
-  echo "NOOP:terminal-busy session=${session} state=$state"
-  exit 0
-fi
-if [[ "$state" == STUCK:* ]]; then
-  # NEVER send Escape or any control keys to the terminal.
-  # Stuck states are reported but not acted on — nudge script is passive.
-  echo "NOOP:terminal-stuck session=${session} state=$state"
-  exit 0
-fi
-
-
-path_now="$(tmux display-message -p -t "$pane" '#{pane_current_path}')"
-if [[ "$path_now" != "$workdir" ]]; then
-  echo "SKIP manual session=${session} reason=path-mismatch current=$path_now expected=$workdir"
-  exit 0
-fi
 
 # We're using OpenCode now, no need to check/ensure CLI
 # Just verify we're on OpenCode and send the prompt
@@ -197,21 +172,13 @@ fi
 
 # msg is set in the case block above
 
-# Final recheck right before sending — fast process-tree + queue check only
-# (no content-diff delay, we already did that in the initial classify)
-_final_pid=$(_pane_pid "$(_pane_id "$session")")
-_final_tree=$(_process_tree "$_final_pid")
-if _has_child_runners "$_final_tree"; then
-  echo "NOOP:terminal-busy session=${session} state=BUSY:runner note=final-recheck"
+state="$(classify_terminal_for_send "$session")"
+if [[ "$state" == BUSY:* ]]; then
+  echo "NOOP:terminal-busy session=${session} state=$state note=final-recheck"
   exit 0
 fi
-_final_text=$(_pane_text "$(_pane_id "$session")")
-if _has_queue_marker "$_final_text"; then
-  echo "NOOP:terminal-busy session=${session} state=BUSY:queued note=final-recheck"
-  exit 0
-fi
-if _work_indicator_near_cursor "$(_pane_id "$session")"; then
-  echo "NOOP:terminal-busy session=${session} state=BUSY:work-indicator note=final-recheck"
+if [[ "$state" == STUCK:* ]]; then
+  echo "NOOP:terminal-stuck session=${session} state=$state note=final-recheck"
   exit 0
 fi
 

@@ -7,6 +7,39 @@ REPO_SYSTEMD_DIR="$REPO_DIR/systemd"
 USER_SYSTEMD_DIR="$HOME/.local/share/systemd/user"
 INSTALL_ONLY="no"
 
+render_service_from_template() {
+  local service_name="$1"
+  local user_service_path="$2"
+  local mode repo template_name template_path
+
+  case "$service_name" in
+    manual-terminal-*.service)
+      mode="manual-terminal"
+      repo="${service_name#manual-terminal-}"
+      repo="${repo%.service}"
+      ;;
+    prci-terminal-*.service)
+      mode="prci-terminal"
+      repo="${service_name#prci-terminal-}"
+      repo="${repo%.service}"
+      ;;
+    agent-terminal-*.service)
+      mode="agent-terminal"
+      repo="${service_name#agent-terminal-}"
+      repo="${repo%.service}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  template_name="${mode}@.service.template"
+  template_path="$REPO_SYSTEMD_DIR/$template_name"
+  [ -f "$template_path" ] || return 1
+
+  sed "s/%i/${repo}/g" "$template_path" > "$user_service_path"
+}
+
 usage() {
   echo "Usage: $0 [--install-only] <timer-name|all>"
   echo "Examples:"
@@ -52,7 +85,9 @@ for unit in "${UNITS[@]}"; do
 
   cp -f "$REPO_SYSTEMD_DIR/$unit" "$USER_SYSTEMD_DIR/$unit"
   if [ -f "$REPO_SYSTEMD_DIR/$service" ]; then
-    cp -f "$REPO_SYSTEMD_DIR/$service" "$USER_SYSTEMD_DIR/$service"
+    if ! render_service_from_template "$service" "$USER_SYSTEMD_DIR/$service"; then
+      cp -f "$REPO_SYSTEMD_DIR/$service" "$USER_SYSTEMD_DIR/$service"
+    fi
   fi
 
 done
