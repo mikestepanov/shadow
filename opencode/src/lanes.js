@@ -5,7 +5,7 @@ const LANE_CONFIG = {
     title: "nixelo",
     action: "prompt",
     completion: "accepted",
-    prompt: "Read todos-hot/README.md. Pick the single highest-impact open item. Implement it completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.",
+    prompt: "If the current objective is already clear, continue. If it is not clear, first review `todos-hot/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.",
   },
   "manual:starthub": {
     repo: "starthub",
@@ -13,7 +13,7 @@ const LANE_CONFIG = {
     title: "starthub",
     action: "prompt",
     completion: "accepted",
-    prompt: "Read todos/planning/postgres-migration.md. Pick the single highest-impact open item. Implement it completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.",
+    prompt: "If the current objective is already clear, continue. If it is not clear, first review `todos/planning/postgres-migration.md` and `todos/planning/postgres-migration-aggressive-cutover.md` to recover the exact objective, current phase, and work order. Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.",
   },
   "agent:nixelo": {
     repo: "nixelo",

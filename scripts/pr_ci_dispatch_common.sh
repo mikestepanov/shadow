@@ -156,7 +156,7 @@ send_command() {
   [[ -n "$pane_target" ]] || return 1
 
   pane_text="$(get_pane_text)"
-  if printf '%s\n' "$pane_text" | grep -Eq "^ *${cmd//"/\"}[[:space:]]*$"; then
+  if printf '%s\n' "$pane_text" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -Fqx -- "$cmd"; then
     submit_tmux_enter "$pane_target"
     return 0
   fi
