@@ -1,7 +1,7 @@
 [Unit]
-Description=Agent terminal dispatch for %i OpenCode session
+Description=Agent terminal dispatch for %i tmux session
 
 [Service]
 Type=oneshot
 EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
-ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping %i
+ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-agent-work-ping %i

@@ -92,12 +92,10 @@ Interpretation:
 ## Terminal enable checklist (mandatory)
 
 Before enabling any terminal cron/timer:
-1. Verify the OpenCode server is healthy: `scripts/opencodectl status`.
-2. Verify the target repo session is bootstrappable:
-   - `scripts/opencodectl ensure-session nixelo`
-   - `scripts/opencodectl ensure-session starthub`
-3. Only then enable/start the cron/timer.
-4. HARD STOP: if the required OpenCode session cannot be created or resumed, do not enable anything; report and wait.
+1. Verify the target tmux session exists and is on the expected repo path.
+2. Verify the target terminal is ready to accept input.
+3. Only then enable/start the timer.
+4. HARD STOP: if the required tmux session is missing or not ready, do not enable anything; report and wait.
 5. Scope lock: when executing a user-approved change, touch ONLY approved fields. Do not piggyback unrelated edits.
 6. Post-change output must list exact requested field deltas and confirm no extra edits.
 7. Handshake lock: no state-changing command may run until a PLAN is sent and an explicit APPROVE token is received.

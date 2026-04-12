@@ -27,7 +27,7 @@
 ## Runtime reality
 - `opencode.service` owns the local HTTP server on `127.0.0.1:4096`
 - OpenCode cron state lives under `opencode/var/`
-- systemd manual/agent timers still exist, but they dispatch OpenCode sessions instead of tmux input
+- systemd manual/agent timers dispatch tmux input via the terminal ping scripts
 - Telegram delivery for automation scripts is provided via `TELEGRAM_BOT_TOKEN`
 
 ## Still not goals

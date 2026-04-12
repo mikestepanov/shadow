@@ -82,7 +82,7 @@ recovery:
 - Process tree (phantom background terminals)
 - Commit freshness per repo
 - Conflict detection (manual vs PR-CI overlap)
-- OpenCode session dispatch health and any remaining tmux observational signals
+- tmux dispatch health and terminal readiness signals
 - Unit file existence
 
 ### Alert escalation:
@@ -221,22 +221,21 @@ Minimum verification commands:
 ```bash
 systemctl --user is-active manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer
 systemctl --user is-enabled manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer
-scripts/opencodectl ensure-session nixelo
-scripts/opencodectl ensure-session starthub
+tmux has-session -t nixelo
+tmux has-session -t starthub
 ```
 
 Terminal enable preflight (mandatory before turning terminal timers/crons ON):
 ```bash
-# 1) OpenCode server must be healthy
-scripts/opencodectl status
+# 1) required tmux session must exist
+tmux has-session -t nixelo
+tmux has-session -t starthub
 
-# 2) required repo session must be bootstrappable
-scripts/opencodectl ensure-session nixelo
-scripts/opencodectl ensure-session starthub
+# 2) required tmux session must be on the expected repo path and ready for input
 
 # 3) only then enable timer/cron
 ```
-Hard stop: if the required OpenCode session cannot be bootstrapped or Codex is not ready, do not enable anything. Report failure and wait for explicit user direction.
+Hard stop: if the required tmux session is missing or not ready to accept input, do not enable anything. Report failure and wait for explicit user direction.
 
 ### 2.5) Nudge delivery cross-check (MANDATORY when manual timer is ON)
 
@@ -346,7 +345,7 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
 
 **Assumptions:**
 - `pnpm dev` is always running (managed by user)
-- OpenCode session bootstrap for `nixelo` is available via `scripts/opencodectl ensure-session nixelo`
+- tmux session `nixelo` exists and is attached to the expected repo path
 - Branch naming: `YYYY-MM-DD-HH-MM` (e.g. `2026-03-23-19-14`)
 
 ---
@@ -397,8 +396,8 @@ If no attention needed in any mode, reply exactly: `HEARTBEAT_OK`
 ### 6) Quick status commands
 
 ```bash
-scripts/opencodectl ensure-session nixelo
-scripts/opencodectl ensure-session starthub
+tmux has-session -t nixelo
+tmux has-session -t starthub
 journalctl --user -u manual-terminal-nixelo.service -n 5 --no-pager
 journalctl --user -u manual-terminal-starthub.service -n 5 --no-pager
 ```
