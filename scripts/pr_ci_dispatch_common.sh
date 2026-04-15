@@ -144,16 +144,18 @@ dismiss_rating_prompt() {
 }
 
 is_terminal_idle() {
-  local state
-  state="$(classify_terminal_for_send "$TMUX_SESSION")"
-  [[ "$state" == IDLE:* ]]
+  terminal_send_preflight "$TMUX_SESSION" "$REPO_DIR"
 }
 
 send_command() {
   local cmd="$1"
   local pane_target pane_text
-  pane_target="$(get_pane_target)"
-  [[ -n "$pane_target" ]] || return 1
+
+  if ! terminal_send_preflight "$TMUX_SESSION" "$REPO_DIR"; then
+    return 1
+  fi
+
+  pane_target="$TERMINAL_PREFLIGHT_PANE"
 
   pane_text="$(get_pane_text)"
   if printf '%s\n' "$pane_text" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -Fqx -- "$cmd"; then

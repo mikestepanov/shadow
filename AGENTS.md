@@ -101,6 +101,7 @@ Hard rules:
 - If output is missing/ambiguous, explicitly say verification is incomplete.
 - Prefer exact state terms from system output (`active`, `inactive`, `failed`, `enabled`, `disabled`, `masked`).
 - If verification cannot be performed, say so directly and do not infer state.
+- For `manual-terminal-*` timers, `active` + `enabled` is not enough. Also verify the related `manual-terminal-*.service` journal shows a fresh working outcome (`SENT ...` or another explicitly acceptable dispatch result), not just `NOOP:terminal-stuck`, `BLOCKED_HUMAN`, or silence.
 
 ## 🔐 Infrastructure Access
 

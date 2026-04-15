@@ -23,7 +23,11 @@ for f in \
   systemd/agent-terminal-nixelo.service \
   systemd/agent-terminal-nixelo.timer \
   systemd/agent-terminal-starthub.service \
-  systemd/agent-terminal-starthub.timer
+  systemd/agent-terminal-starthub.timer \
+  systemd/prci-terminal-nixelo.service \
+  systemd/prci-terminal-nixelo.timer \
+  systemd/prci-terminal-starthub.service \
+  systemd/prci-terminal-starthub.timer
   do
   [[ -f "$REPO/$f" ]] || fail "missing repo file: $f"
   ok "repo file present: $f"
@@ -42,16 +46,26 @@ for f in \
   ok "legacy repo file absent: $f"
 done
 
-# 3) Schedule integrity for canonical timers (5m)
-expect_file_contains "$REPO/systemd/manual-terminal-nixelo.timer" "OnCalendar=*-*-* *:0/5:00"
-expect_file_contains "$REPO/systemd/manual-terminal-starthub.timer" "OnCalendar=*-*-* *:0/5:00"
-expect_file_contains "$REPO/systemd/agent-terminal-nixelo.timer" "OnCalendar=*-*-* *:0/5:00"
-expect_file_contains "$REPO/systemd/agent-terminal-starthub.timer" "OnCalendar=*-*-* *:0/5:00"
+# 3) Schedule integrity for canonical timers (1m)
+expect_file_contains "$REPO/systemd/manual-terminal-nixelo.timer" "OnCalendar=*-*-* *:*:00"
+expect_file_contains "$REPO/systemd/manual-terminal-starthub.timer" "OnCalendar=*-*-* *:*:00"
+expect_file_contains "$REPO/systemd/agent-terminal-nixelo.timer" "OnCalendar=*-*-* *:*:00"
+expect_file_contains "$REPO/systemd/agent-terminal-starthub.timer" "OnCalendar=*-*-* *:*:00"
+expect_file_contains "$REPO/systemd/prci-terminal-nixelo.timer" "OnCalendar=*-*-* *:*:00"
+expect_file_contains "$REPO/systemd/prci-terminal-starthub.timer" "OnCalendar=*-*-* *:00/5:00"
 
-# 4) Ping script reliability signature still present
-PING_SCRIPT="$REPO/scripts/tmux-agent-work-ping"
-expect_file_contains "$PING_SCRIPT" 'send_tmux_text_enter "$target" "$msg"'
-expect_file_contains "$PING_SCRIPT" 'source "$SCRIPT_DIR/terminal_mode_guard.sh"'
+# 4) Ping script reliability signatures still present
+MANUAL_PING_SCRIPT="$REPO/scripts/tmux-manual-work-ping"
+AGENT_PING_SCRIPT="$REPO/scripts/tmux-agent-work-ping"
+PRCI_PING_SCRIPT="$REPO/scripts/tmux-prci-work-ping"
+expect_file_contains "$MANUAL_PING_SCRIPT" 'terminal_send_preflight "$session" "$workdir"'
+expect_file_contains "$MANUAL_PING_SCRIPT" 'source "$SCRIPT_DIR/scripts/terminal_mode_guard.sh"'
+expect_file_contains "$MANUAL_PING_SCRIPT" 'report_preflight_failure'
+expect_file_contains "$AGENT_PING_SCRIPT" 'send_tmux_text_enter "$target" "$msg"'
+expect_file_contains "$AGENT_PING_SCRIPT" 'terminal_send_preflight "$session" "$workdir"'
+expect_file_contains "$AGENT_PING_SCRIPT" 'source "$SCRIPT_DIR/terminal_mode_guard.sh"'
+expect_file_contains "$PRCI_PING_SCRIPT" 'source "$SCRIPT_DIR/scripts/terminal_mode_guard.sh"'
+expect_file_contains "$PRCI_PING_SCRIPT" 'echo "PR-CI: $output"'
 
 # 5) OFF-policy awareness note (do not force-enable timers)
 warn "timer runtime state is policy-driven; this verifier does not auto-require enabled/active"
@@ -59,7 +73,9 @@ for t in \
   manual-terminal-nixelo.timer \
   manual-terminal-starthub.timer \
   agent-terminal-nixelo.timer \
-  agent-terminal-starthub.timer
+  agent-terminal-starthub.timer \
+  prci-terminal-nixelo.timer \
+  prci-terminal-starthub.timer
   do
   a="$(systemctl --user is-active "$t" 2>/dev/null || true)"
   e="$(systemctl --user is-enabled "$t" 2>/dev/null || true)"

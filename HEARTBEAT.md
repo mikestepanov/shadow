@@ -61,7 +61,7 @@ recovery:
 - ❌ **NEVER** create, close, or merge PRs
 - ❌ **NEVER** run `systemctl` start/stop/enable/disable directly
 - ❌ **NEVER** run `gh pr create/close/merge`
-- ❌ **NEVER** run manual dispatch scripts directly (`scripts/opencodectl manual-ping <repo>`)
+- ❌ **NEVER** run terminal dispatch scripts directly (`scripts/tmux-manual-work-ping <repo>`, `scripts/tmux-agent-work-ping <repo>`, `scripts/tmux-prci-work-ping <repo>`)
 - ❌ **NEVER** send `Escape`, `/stop`, `C-c`, or any input to tmux panes
 - ❌ **NEVER** run `scripts/opencodectl cron enable/disable` directly
 - ❌ **NEVER** enable/disable/start/stop nixelo manual timer — Mikhail handles the auto-nixelo lifecycle manually. If nixelo timer is off, it's off on purpose. Do NOT re-enable it.
@@ -129,16 +129,16 @@ scripts/opencodectl cron list --all --json   # check heartbeat job status + cons
 
 ### Conflict detection (MANDATORY, runs after self-health check)
 
-Before any repo-level checks, verify no repo has BOTH manual/agent AND PR-CI automation enabled simultaneously:
+Before any repo-level checks, verify no repo has BOTH manual/agent AND PR-CI terminal timers enabled simultaneously:
 
 ```bash
 # Check all automation layers
-systemctl --user is-active manual-terminal-nixelo.timer manual-terminal-starthub.timer 2>&1
-scripts/opencodectl cron list --all 2>&1  # look for pr-ci-* enabled status
+systemctl --user is-active manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer prci-terminal-nixelo.timer prci-terminal-starthub.timer 2>&1
+systemctl --user is-enabled manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer prci-terminal-nixelo.timer prci-terminal-starthub.timer 2>&1
 ```
 
 **Hard rules:**
-1. If any repo has both manual/agent timer ACTIVE and PR-CI cron ENABLED → **immediate conflict**. Disable the manual timer for that repo in-cycle (PR-CI takes priority when TODO is done). Alert via Telegram if unclear which should win.
+1. If any repo has both manual/agent timer ACTIVE and PR-CI timer ACTIVE → **immediate conflict**. Disable the lower-priority terminal timer for that repo in-cycle. Alert via Telegram if unclear which should win.
 2. If a repo's TODO file no longer exists but its manual cron is still ON → disable manual cron immediately (work is done, nothing to nudge).
 3. This check must run EVERY cycle regardless of terminal busy state. "Terminal busy" is not a reason to skip conflict detection.
 4. **Missing canonical unit self-heal (added 2026-03-30):** if any canonical terminal unit (`manual-terminal-*`, `agent-terminal-*`) is `Loaded: not-found`, heartbeat MUST repair it in-cycle:
@@ -171,12 +171,12 @@ Heartbeat must be dynamic, not static. Do not assume OFF or ON from historical l
 ### Terminology + reporting lock (added 2026-03-06)
 Treat terminal automation as two explicit groups:
 1. **Non-AI System Terminal Automation**: `manual-terminal-*`, `agent-terminal-*`
-2. **AI-powered Terminal Automation**: `pr-ci-*`
+2. **AI-powered Terminal Automation**: `prci-terminal-*`
 
 Every heartbeat must report both groups explicitly, plus OpenCode session/manual dispatch readiness:
 - Non-AI System Terminal Automation state by unit
-- AI-powered Terminal Automation state by job
-- manual dispatch/session health for `nixelo` and `starthub`
+- AI-powered Terminal Automation state by unit
+- terminal dispatch/session health for `nixelo` and `starthub`
 
 Determine expected intent in this order:
 1. Explicit user instruction in current chat (highest priority).
@@ -247,7 +247,7 @@ journalctl --user -u manual-terminal-<repo>.service --since "-30min" --no-pager 
 
 **Hard rules:**
 1. If terminal appears idle (at `›` prompt) but last 30min of journal shows only `NOOP:terminal-busy` → **BUG in busy detection**. Alert immediately and investigate `busy_reason` output.
-2. If terminal is idle and last SENT is >30min ago → something is wrong. Run the manual dispatch path manually to test: `~/Desktop/shadow/scripts/opencodectl manual-ping <repo>`
+2. If terminal is idle and last SENT is >30min ago → something is wrong. Treat this as a real alert, re-check the live classifier state, and inspect the recent `manual-terminal-<repo>.service` journal before claiming the path is healthy.
 3. Never report "all systems operational" or `HEARTBEAT_OK` when the timer is ON but zero nudges are being delivered to an idle terminal. This is a **hard gate** — any active timer with 0 SENT in last 10 minutes on an idle terminal MUST be flagged, never ignored.
 4. **Agnostic busy-detection law (added 2026-03-30):** busy detection must work uniformly across ALL terminal lanes/sessions and CLI UIs (cdx/cc/other). Queue markers, pending outbound messages, and background-terminal waits are BUSY regardless of prompt shape or provider-specific UI text. Never rely on one model’s exact wording.
 
@@ -286,9 +286,9 @@ After gate passes:
 
 ### 3.1) PR-CI done-done auto-disable (added 2026-03-17)
 
-**Problem this solves:** The PR-CI cron lane does not own the done-done shutdown decision. Heartbeat owns done-done detection and OpenCode cron shutdown.
+**Problem this solves:** The PR-CI timer lane does not own the done-done shutdown decision. Heartbeat owns done-done detection and `prci-terminal-*` shutdown.
 
-**Runs every heartbeat cycle** for each repo where `pr-ci-*` cron is enabled:
+**Runs every heartbeat cycle** for each repo where `prci-terminal-*` is active:
 
 ```bash
 # 1. Get PR number
@@ -313,7 +313,7 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
 **Gate logic:**
 - IF (CI == pass) AND (unpushed == 0) AND (new_human_comments == 0) AND (unresolved_threads == 0):
   - Mark PR done-done.
-  - Run `bash ~/Desktop/shadow/scripts/auto_nixelo_cycle.sh` which handles: disable PR-CI → merge PR → checkout main → new date branch → enable manual cron → Telegram notification.
+  - Run `bash ~/Desktop/shadow/scripts/auto_nixelo_cycle.sh` which handles: disable the PR-CI timer → merge PR → checkout main → new date branch → enable the manual timer → Telegram notification.
 
 ### 3.2) Auto-Nixelo Mode (added 2026-03-23)
 
@@ -321,19 +321,19 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
 
 **Full lifecycle — runs automatically, no human intervention needed:**
 
-1. `manual-terminal-nixelo.timer` triggers OpenCode manual dispatch for nixelo TODO work
-2. TODO exhaustion detection (heartbeat OR manual-ping path):
+1. `manual-terminal-nixelo.timer` triggers the shared manual terminal dispatch for nixelo TODO work
+2. TODO exhaustion detection (heartbeat OR the manual timer dispatch path):
    - Each heartbeat cycle, if `manual-terminal-nixelo.timer` is active, check `grep -c '^\- \[ \]' <task_file>` in the repo.
    - If 0 open items, check diff size to decide next mode:
      ```bash
      code_changes=$(git diff main --name-only | grep -cv '\.md$' || echo 0)
      ```
-     - `code_changes > 0` (meaningful code shipped) → disable manual timer → enable **PR-CI** cron → send Telegram notification.
+      - `code_changes > 0` (meaningful code shipped) → disable manual timer → enable the **PR-CI** timer → send Telegram notification.
      - `code_changes == 0` (only .md or nothing) → disable manual timer → enable **agent** timer → send Telegram notification.
-    - The OpenCode manual-ping path also detects TODO exhaustion independently (existing behavior, belt-and-suspenders).
-3. PR-CI cron handles review/fix cycles (existing behavior)
+     - The shared manual timer dispatch path also detects TODO exhaustion independently (existing behavior, belt-and-suspenders).
+3. The PR-CI timer handles review/fix cycles (existing behavior)
 4. Heartbeat detects done-done → calls `scripts/auto_nixelo_cycle.sh` which:
-   - Disables PR-CI cron
+    - Disables the PR-CI timer
    - Merges PR via `gh pr merge --squash --delete-branch`
    - Checks out `main`, pulls
    - Creates new branch `YYYY-MM-DD-HH-MM`
@@ -341,7 +341,7 @@ gh pr view $pr_number --json reviewThreads --jq '.reviewThreads[] | select(.isRe
    - Sends Telegram notification
 5. Loop back to step 1
 
-**Heartbeat integration:** Each heartbeat cycle, if `pr-ci-nixelo` is enabled, run the auto-nixelo script. It handles all gate checks internally and outputs a status line.
+**Heartbeat integration:** Each heartbeat cycle, if `prci-terminal-nixelo.timer` is active, run the auto-nixelo script. It handles all gate checks internally and outputs a status line.
 
 **Assumptions:**
 - `pnpm dev` is always running (managed by user)
@@ -372,7 +372,7 @@ If **Stalled** or **At risk**:
 2. **Targeted nudge**: next incomplete item + "run checks + commit"
 3. If still stalled, re-bootstrap the target session if needed, then re-send targeted instruction
 
-**IMPORTANT:** use the OpenCode/manual dispatch path, not raw tmux key injection.
+**IMPORTANT:** use the shared terminal dispatch path, not raw tmux key injection.
 
 After each attempt:
 - Re-check session/manual dispatch output and confirm work resumed.

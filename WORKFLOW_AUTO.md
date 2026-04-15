@@ -13,18 +13,20 @@ Restore operational rules after compaction/restart so automation behavior stays 
 
 ## Scheduler Model
 - Terminal automation is split across:
-  - systemd user timers for watcher/manual/agent scheduling
-  - OpenCode cron for Heartbeat and PR-CI automation
+  - systemd user timers for watcher/manual/agent/PR-CI scheduling
+  - OpenCode cron for Heartbeat only
 - Current terminal systemd units:
   - `manual-terminal-nixelo.timer`
   - `manual-terminal-starthub.timer`
   - `agent-terminal-nixelo.timer`
   - `agent-terminal-starthub.timer`
+  - `prci-terminal-nixelo.timer`
+  - `prci-terminal-starthub.timer`
 
 Manual timer semantics:
 - `manual-terminal-*` timers are still systemd units
-- but their services now dispatch OpenCode manual sessions via `scripts/opencodectl manual-ping <repo>`
-- they are no longer tmux-input nudgers
+- their services dispatch the shared terminal automation scripts in `scripts/tmux-*-work-ping`
+- all terminal modes must pass the same tmux session/path/readiness preflight before enablement
 
 ## Runtime Policy
 - Preferred OFF behavior: **delete/uninstall runtime unit**, keep repo files.

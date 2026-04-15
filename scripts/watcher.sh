@@ -11,12 +11,14 @@ OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EPOCH=$(date +%s)
 
+source "$SCRIPT_DIR/terminal_classifier.sh"
+
 # --- Config ---
 declare -A REPO_PATH=( [nixelo]="$HOME/Desktop/nixelo" [starthub]="$HOME/Desktop/StartHub" )
 declare -A REPO_TMUX=( [nixelo]="nixelo" [starthub]="starthub" )
 declare -A REPO_MANUAL_TIMER=( [nixelo]="manual-terminal-nixelo.timer" [starthub]="manual-terminal-starthub.timer" )
 declare -A REPO_AGENT_TIMER=( [nixelo]="agent-terminal-nixelo.timer" [starthub]="agent-terminal-starthub.timer" )
-declare -A REPO_PRCI_CRON=( [nixelo]="pr-ci-nixelo" [starthub]="pr-ci-starthub" )
+declare -A REPO_PRCI_TIMER=( [nixelo]="prci-terminal-nixelo.timer" [starthub]="prci-terminal-starthub.timer" )
 STALE_MINUTES=120
 
 # --- Helpers ---
@@ -76,6 +78,15 @@ nudge_stats_10min() {
   noop=$(journalctl --user -u "$svc" --since "-10min" --no-pager 2>/dev/null | grep -c "NOOP" || true)
   noop="${noop:-0}"; noop="$(echo "$noop" | tr -dc '0-9' | head -c5)"; noop="${noop:-0}"
   echo "${sent}:${noop}"
+}
+
+stuck_no_prompt_10min() {
+  local svc="$1"
+  local stuck
+  stuck=$(journalctl --user -u "$svc" --since "-10min" --no-pager 2>/dev/null | grep -c "NOOP:terminal-stuck" || true)
+  stuck="${stuck:-0}"
+  stuck="$(echo "$stuck" | tr -dc '0-9' | head -c5)"
+  echo "${stuck:-0}"
 }
 
 tmux_check() {
@@ -142,18 +153,6 @@ has_child_runners() {
 }
 
 
-pane_at_prompt() {
-  local session="$1"
-  local tail5
-  tail5=$(tmux capture-pane -t "$session" -p 2>/dev/null | tail -5)
-  # Check for Codex prompt (›) or Claude Code prompt (❯)
-  if echo "$tail5" | grep -Eq '^[[:space:]]*(›|❯)[[:space:]]'; then
-    echo "true"
-  else
-    echo "false"
-  fi
-}
-
 commit_age_seconds() {
   local repo="$1"
   local ct
@@ -194,18 +193,18 @@ cron_health() {
 
 conflict_check() {
   local repo="$1"
-  local manual_active agent_active prci_enabled
+  local manual_active agent_active prci_active
   manual_active=$(timer_state "${REPO_MANUAL_TIMER[$repo]}")
   agent_active=$(timer_state "${REPO_AGENT_TIMER[$repo]}")
-  prci_enabled=$(cron_health "${REPO_PRCI_CRON[$repo]}")
+  prci_active=$(timer_state "${REPO_PRCI_TIMER[$repo]}")
 
   local active_count=0
   [[ "$manual_active" == "active" ]] && (( active_count++ ))
   [[ "$agent_active" == "active" ]] && (( active_count++ ))
-  [[ "$prci_enabled" == "ok" ]] && (( active_count++ ))
+  [[ "$prci_active" == "active" ]] && (( active_count++ ))
 
   if (( active_count > 1 )); then
-    echo "CONFLICT:${manual_active}/${agent_active}/${prci_enabled}"
+    echo "CONFLICT:${manual_active}/${agent_active}/${prci_active}"
   else
     echo "clean"
   fi
@@ -227,26 +226,33 @@ repo_status() {
   local manual_timer="${REPO_MANUAL_TIMER[$repo]}"
   local manual_service="${manual_timer%.timer}.service"
   local agent_timer="${REPO_AGENT_TIMER[$repo]}"
+  local prci_timer="${REPO_PRCI_TIMER[$repo]}"
 
   local tmux_cmd; tmux_cmd=$(tmux_check "$session")
   local mode; mode=$(process_tree_mode "$session")
   local children; children=$(has_child_runners "$session")
-  local at_prompt; at_prompt=$(pane_at_prompt "$session")
+  local live_send_state; live_send_state=$(classify_terminal_for_send "$session")
+  local at_prompt="false"
+  [[ "$live_send_state" == IDLE:* ]] && at_prompt="true"
   local commit_age; commit_age=$(commit_age_seconds "$path")
   local commit; commit=$(commit_info "$path")
   local manual_state; manual_state=$(timer_state "$manual_timer")
   local manual_enabled; manual_enabled=$(timer_enabled "$manual_timer")
   local agent_state; agent_state=$(timer_state "$agent_timer")
   local agent_enabled; agent_enabled=$(timer_enabled "$agent_timer")
+  local prci_state; prci_state=$(timer_state "$prci_timer")
+  local prci_enabled; prci_enabled=$(timer_enabled "$prci_timer")
   local svc_health; svc_health=$(service_stuck "$manual_service")
   local conflict; conflict=$(conflict_check "$repo")
 
   # Nudge delivery (only relevant if manual timer is active)
   local sent_noop="n/a"
   local last_sent="n/a"
+  local stuck_no_prompt="n/a"
   if [[ "$manual_state" == "active" ]]; then
     sent_noop=$(nudge_stats_10min "$manual_service")
     last_sent=$(last_sent_age "$manual_service")
+    stuck_no_prompt=$(stuck_no_prompt_10min "$manual_service")
   fi
 
   local stale="false"
@@ -256,7 +262,7 @@ repo_status() {
 
   # Idle + no nudge detection (hard gate)
   local idle_no_nudge="false"
-  if [[ "$manual_state" == "active" && "$at_prompt" == "true" ]]; then
+  if [[ "$manual_state" == "active" && "$live_send_state" == IDLE:* ]]; then
     local sent_count="${sent_noop%%:*}"
     if [[ "$sent_count" == "0" ]]; then
       idle_no_nudge="true"
@@ -268,6 +274,13 @@ repo_status() {
   [[ "$svc_health" == stuck:* ]] && alerts="${alerts}SERVICE_STUCK,"
   [[ "$stale" == "true" && "$at_prompt" == "true" ]] && alerts="${alerts}STALE_AND_IDLE,"
   [[ "$idle_no_nudge" == "true" ]] && alerts="${alerts}IDLE_NO_NUDGE,"
+  local sent_count="0"
+  if [[ "$sent_noop" != "n/a" ]]; then
+    sent_count="${sent_noop%%:*}"
+  fi
+  if [[ "$stuck_no_prompt" != "n/a" && "$stuck_no_prompt" -ge 3 && "$sent_count" == "0" && "$live_send_state" == STUCK:* ]] 2>/dev/null; then
+    alerts="${alerts}TERMINAL_STUCK,"
+  fi
   [[ "$conflict" == CONFLICT:* ]] && alerts="${alerts}CONFLICT,"
   [[ "$tmux_cmd" == "missing" ]] && alerts="${alerts}TMUX_MISSING,"
   alerts="${alerts%,}"  # strip trailing comma
@@ -278,6 +291,7 @@ repo_status() {
       "tmux": "${tmux_cmd}",
       "mode": "${mode}",
       "child_runners": "${children}",
+      "live_send_state": "${live_send_state}",
       "at_prompt": ${at_prompt},
       "commit_age_s": ${commit_age},
       "commit": $(json_str "$commit"),
@@ -286,8 +300,11 @@ repo_status() {
       "manual_enabled": "${manual_enabled}",
       "agent_timer": "${agent_state}",
       "agent_enabled": "${agent_enabled}",
+      "prci_timer": "${prci_state}",
+      "prci_enabled": "${prci_enabled}",
       "service_health": "${svc_health}",
       "nudge_sent_noop_10m": "${sent_noop}",
+      "stuck_no_prompt_10m": "${stuck_no_prompt}",
       "last_sent_age": "${last_sent}",
       "idle_no_nudge": ${idle_no_nudge},
       "conflict": "${conflict}",
@@ -298,13 +315,11 @@ REPO_JSON
 
 # --- Cron health ---
 heartbeat_cron=$(cron_health "Heartbeat")
-prci_nixelo=$(cron_health "pr-ci-nixelo")
-prci_starthub=$(cron_health "pr-ci-starthub")
 
 # --- Unit existence check ---
 units_ok="true"
 missing_units=""
-for unit in manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer; do
+for unit in manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer prci-terminal-nixelo.timer prci-terminal-starthub.timer; do
   load=$(unit_check "$unit")
   if [[ "$load" == "not-found" ]]; then
     units_ok="false"
@@ -313,10 +328,10 @@ for unit in manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-te
 done
 missing_units="${missing_units%,}"
 
-# --- Nixelo PR status (if pr-ci is on) ---
+# --- Nixelo PR status (if PR-CI timer is on) ---
 nixelo_pr="n/a"
 nixelo_branch="n/a"
-if [[ "$prci_nixelo" == "ok" ]]; then
+if [[ "$(timer_state "${REPO_PRCI_TIMER[nixelo]}")" == "active" ]]; then
   nixelo_branch=$(git -C "${REPO_PATH[nixelo]}" branch --show-current 2>/dev/null || echo "unknown")
   local_pr_count=$(open_pr_count "NixeloApp/nixelo" "$nixelo_branch")
   nixelo_pr="count:${local_pr_count}"
@@ -345,9 +360,7 @@ cat > "$STATE_FILE" <<EOF
   "timestamp": "${TIMESTAMP}",
   "epoch": ${EPOCH},
   "crons": {
-    "heartbeat": "${heartbeat_cron}",
-    "pr_ci_nixelo": "${prci_nixelo}",
-    "pr_ci_starthub": "${prci_starthub}"
+    "heartbeat": "${heartbeat_cron}"
   },
   "units_ok": ${units_ok},
   "missing_units": "${missing_units}",
@@ -361,10 +374,18 @@ ${starthub_status}
 EOF
 
 # Print summary to stdout for journalctl
-echo "WATCHER:${TIMESTAMP} heartbeat=${heartbeat_cron} prci_nix=${prci_nixelo} prci_sh=${prci_starthub} units=${units_ok}"
-for repo in nixelo starthub; do
-  alerts=$(grep -A20 "\"${repo}\"" "$STATE_FILE" | grep '"alerts"' | head -1 | sed 's/.*: "//;s/".*//')
-  echo "  ${repo}: alerts=${alerts}"
-done
+echo "WATCHER:${TIMESTAMP} heartbeat=${heartbeat_cron} units=${units_ok}"
+python3 - "$STATE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    data = json.load(f)
+
+repos = data.get('repos', {})
+for repo in ('nixelo', 'starthub'):
+    alerts = repos.get(repo, {}).get('alerts', 'missing')
+    print(f"  {repo}: alerts={alerts}")
+PY
 
 exit 0

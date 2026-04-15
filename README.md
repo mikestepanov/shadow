@@ -27,6 +27,7 @@ Conversation terminology:
 - Treat both systemd timer automation and OpenCode cron jobs as "cron" in user-facing conversation.
 - If precision matters, say `manual timer`, `agent timer`, `PR-CI timer`, or `auto-cycle timer` for the systemd path.
 - Do not claim which mode nixelo is in from memory or docs. Check live timer state first with `systemctl --user status manual-terminal-nixelo.timer prci-terminal-nixelo.timer opencode-auto-nixelo.timer`.
+- Do not treat `active` + `enabled` as proof a terminal path works. Verify recent service output too: `journalctl --user -u manual-terminal-nixelo.service -n 5 --no-pager`, `journalctl --user -u manual-terminal-starthub.service -n 5 --no-pager`, `journalctl --user -u agent-terminal-nixelo.service -n 5 --no-pager`, and `journalctl --user -u prci-terminal-nixelo.service -n 5 --no-pager` when those modes matter.
 
 Operational rule:
 

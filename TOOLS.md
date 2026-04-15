@@ -42,14 +42,16 @@ Current canonical systemd terminal units:
 - `manual-terminal-starthub.timer`
 - `agent-terminal-nixelo.timer`
 - `agent-terminal-starthub.timer`
+- `prci-terminal-nixelo.timer`
+- `prci-terminal-starthub.timer`
 
-OpenCode terminal automation jobs:
+Legacy OpenCode PR-CI jobs (should stay disabled unless explicitly migrating):
 - `pr-ci-nixelo`
 - `pr-ci-starthub`
 
 Messaging/heartbeat terminology lock:
 - "AI-powered Essential Automation" = heartbeat/report/restart jobs
-- "AI-powered Terminal Automation" = `pr-ci-*`
+- "AI-powered Terminal Automation" = `prci-terminal-*`
 - "Non-AI System Terminal Automation" = `manual-terminal-*`, `agent-terminal-*`
 - User-facing default wording: "Terminal Automation" (combined umbrella term).
 - Only split into internals when the user explicitly asks.

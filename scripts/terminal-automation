@@ -5,21 +5,52 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 OPENCODECTL="$SCRIPT_DIR/opencodectl"
 
+source "$SCRIPT_DIR/terminal_mode_guard.sh"
+
 # Terminal Automation guardrail utility
-# Enforces dual control-plane checks:
-# 1) systemd user timers (manual-*/agent-*)
-# 2) OpenCode cron jobs (pr-ci-*)
+# Enforces terminal automation checks across:
+# 1) canonical systemd user timers (manual-*/agent-*/prci-terminal-*)
+# 2) legacy OpenCode PR-CI cron jobs kept disabled to avoid split-brain
 
 SYSTEMD_UNITS=(
   manual-terminal-nixelo.timer
   manual-terminal-starthub.timer
   agent-terminal-nixelo.timer
   agent-terminal-starthub.timer
+  prci-terminal-nixelo.timer
+  prci-terminal-starthub.timer
 )
 
-PRCI_NAMES=(
+LEGACY_PRCI_CRONS=(
   pr-ci-nixelo
   pr-ci-starthub
+)
+
+declare -A TERMINAL_SESSION=(
+  [manual-terminal-nixelo.timer]="nixelo"
+  [manual-terminal-starthub.timer]="starthub"
+  [agent-terminal-nixelo.timer]="nixelo"
+  [agent-terminal-starthub.timer]="starthub"
+  [prci-terminal-nixelo.timer]="nixelo"
+  [prci-terminal-starthub.timer]="starthub"
+)
+
+declare -A TERMINAL_WORKDIR=(
+  [manual-terminal-nixelo.timer]="$HOME/Desktop/nixelo"
+  [manual-terminal-starthub.timer]="$HOME/Desktop/StartHub"
+  [agent-terminal-nixelo.timer]="$HOME/Desktop/nixelo"
+  [agent-terminal-starthub.timer]="$HOME/Desktop/StartHub"
+  [prci-terminal-nixelo.timer]="$HOME/Desktop/nixelo"
+  [prci-terminal-starthub.timer]="$HOME/Desktop/StartHub"
+)
+
+declare -A TERMINAL_VERIFY_RE=(
+  [manual-terminal-nixelo.timer]='SENT manual session=nixelo'
+  [manual-terminal-starthub.timer]='SENT manual session=starthub'
+  [agent-terminal-nixelo.timer]='SENT role=.* session=nixelo'
+  [agent-terminal-starthub.timer]='SENT role=.* session=starthub'
+  [prci-terminal-nixelo.timer]='PR-CI:'
+  [prci-terminal-starthub.timer]='PR-CI:'
 )
 
 PLAN_DIR="${HOME}/.openclaw/workspace/.terminal-automation-plans"
@@ -37,6 +68,8 @@ Usage:
 Actions for plan:
   enable-manual <nixelo|starthub|all>
   disable-manual <nixelo|starthub|all>
+  enable-agent <nixelo|starthub|all>
+  disable-agent <nixelo|starthub|all>
   enable-prci <nixelo|starthub|all>
   disable-prci <nixelo|starthub|all>
   off <all|nixelo|starthub>
@@ -44,7 +77,7 @@ Actions for plan:
 Notes:
   - "OFF" means both control planes are off.
   - For canonical systemd timer units: keep unit files installed; OFF is inactive + masked.
-  - For OpenClaw PR-CI jobs: status must be disabled.
+  - Legacy OpenClaw PR-CI jobs should stay disabled unless a migration explicitly needs them.
   - AI agents MUST use plan/execute flow. Direct openclaw cron/systemctl calls are forbidden.
 EOF
 }
@@ -57,6 +90,7 @@ scope_units() {
       case "$filter" in
         manual) units=(manual-terminal-nixelo.timer manual-terminal-starthub.timer) ;;
         agent)  units=(agent-terminal-nixelo.timer agent-terminal-starthub.timer) ;;
+        prci)   units=(prci-terminal-nixelo.timer prci-terminal-starthub.timer) ;;
         *)      units=("${SYSTEMD_UNITS[@]}") ;;
       esac
       ;;
@@ -64,14 +98,16 @@ scope_units() {
       case "$filter" in
         manual) units=(manual-terminal-nixelo.timer) ;;
         agent)  units=(agent-terminal-nixelo.timer) ;;
-        *)      units=(manual-terminal-nixelo.timer agent-terminal-nixelo.timer) ;;
+        prci)   units=(prci-terminal-nixelo.timer) ;;
+        *)      units=(manual-terminal-nixelo.timer agent-terminal-nixelo.timer prci-terminal-nixelo.timer) ;;
       esac
       ;;
     starthub)
       case "$filter" in
         manual) units=(manual-terminal-starthub.timer) ;;
         agent)  units=(agent-terminal-starthub.timer) ;;
-        *)      units=(manual-terminal-starthub.timer agent-terminal-starthub.timer) ;;
+        prci)   units=(prci-terminal-starthub.timer) ;;
+        *)      units=(manual-terminal-starthub.timer agent-terminal-starthub.timer prci-terminal-starthub.timer) ;;
       esac
       ;;
     *)
@@ -82,11 +118,11 @@ scope_units() {
   printf '%s\n' "${units[@]}"
 }
 
-scope_prci() {
+scope_legacy_prci_crons() {
   local scope="$1"
   case "$scope" in
     all)
-      printf '%s\n' "${PRCI_NAMES[@]}"
+      printf '%s\n' "${LEGACY_PRCI_CRONS[@]}"
       ;;
     nixelo)
       printf '%s\n' pr-ci-nixelo
@@ -104,9 +140,163 @@ scope_prci() {
 unit_active() { systemctl --user is-active "$1" 2>&1 || true; }
 unit_enabled() { systemctl --user is-enabled "$1" 2>&1 || true; }
 
+declare -A ROLLBACK_ACTIVE_STATE=()
+declare -A ROLLBACK_ENABLED_STATE=()
+
 ensure_timer_installed() {
   local unit="$1"
   "$SCRIPT_DIR/timers-install" --install-only "${unit%.timer}" >/dev/null
+}
+
+terminal_timer_session() {
+  printf '%s' "${TERMINAL_SESSION[$1]:-}"
+}
+
+terminal_timer_workdir() {
+  printf '%s' "${TERMINAL_WORKDIR[$1]:-}"
+}
+
+terminal_timer_verify_re() {
+  printf '%s' "${TERMINAL_VERIFY_RE[$1]:-}"
+}
+
+capture_rollback_state() {
+  local unit="$1"
+  ROLLBACK_ACTIVE_STATE["$unit"]="$(unit_active "$unit")"
+  ROLLBACK_ENABLED_STATE["$unit"]="$(unit_enabled "$unit")"
+}
+
+restore_unit_state() {
+  local unit="$1"
+  local prev_active prev_enabled
+
+  prev_active="${ROLLBACK_ACTIVE_STATE[$unit]:-inactive}"
+  prev_enabled="${ROLLBACK_ENABLED_STATE[$unit]:-disabled}"
+
+  case "$prev_enabled" in
+    masked)
+      systemctl --user mask "$unit" >/dev/null 2>&1 || true
+      ;;
+    enabled)
+      systemctl --user unmask "$unit" >/dev/null 2>&1 || true
+      systemctl --user enable "$unit" >/dev/null 2>&1 || true
+      ;;
+    *)
+      systemctl --user unmask "$unit" >/dev/null 2>&1 || true
+      systemctl --user disable "$unit" >/dev/null 2>&1 || true
+      ;;
+  esac
+
+  case "$prev_active" in
+    active|activating|reloading)
+      systemctl --user start "$unit" >/dev/null 2>&1 || true
+      ;;
+    *)
+      systemctl --user stop "$unit" >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+
+timer_preflight() {
+  local unit="$1"
+  local session workdir
+
+  session="$(terminal_timer_session "$unit")"
+  workdir="$(terminal_timer_workdir "$unit")"
+  [[ -n "$session" && -n "$workdir" ]] || return 0
+
+  if ! terminal_send_preflight "$session" "$workdir"; then
+    case "$TERMINAL_PREFLIGHT_REASON" in
+      session-missing|pane-missing)
+        echo "PREFLIGHT_FAIL $unit reason=$TERMINAL_PREFLIGHT_REASON session=$session" >&2
+        ;;
+      path-mismatch)
+        echo "PREFLIGHT_FAIL $unit reason=path-mismatch session=$session current=$TERMINAL_PREFLIGHT_CURRENT_PATH expected=$workdir" >&2
+        ;;
+      terminal-not-ready)
+        echo "PREFLIGHT_FAIL $unit reason=terminal-not-ready session=$session state=$TERMINAL_PREFLIGHT_STATE" >&2
+        ;;
+    esac
+    return 1
+  fi
+
+  echo "PREFLIGHT_OK $unit session=$session state=$TERMINAL_PREFLIGHT_STATE"
+}
+
+verify_timer_dispatch() {
+  local unit="$1"
+  local verify_re service since logs outcome
+
+  verify_re="$(terminal_timer_verify_re "$unit")"
+  [[ -n "$verify_re" ]] || return 0
+
+  service="${unit%.timer}.service"
+  since="$(date '+%Y-%m-%d %H:%M:%S')"
+
+  if ! systemctl --user start "$service" >/dev/null 2>&1; then
+    echo "VERIFY_FAIL $unit reason=service-start-failed service=$service" >&2
+    return 1
+  fi
+
+  sleep 2
+  logs="$(journalctl --user -u "$service" --since "$since" --no-pager 2>/dev/null || true)"
+
+  if printf '%s\n' "$logs" | grep -Eq "$verify_re"; then
+    echo "VERIFY_OK $unit dispatch=verified"
+    return 0
+  fi
+
+  outcome="$(printf '%s\n' "$logs" | grep -E 'SENT |PR-CI:|NOOP:|SKIP |BLOCKED_HUMAN:|OK:' | tail -1 || true)"
+  if [[ -z "$outcome" ]]; then
+    outcome="no-dispatch-log"
+  fi
+
+  echo "VERIFY_FAIL $unit dispatch=$outcome" >&2
+  return 1
+}
+
+rollback_units() {
+  local unit
+  for unit in "$@"; do
+    [[ -n "$unit" ]] || continue
+    restore_unit_state "$unit"
+  done
+}
+
+enable_terminal_units() {
+  local scope="$1"
+  local filter="$2"
+  local enabled_units=()
+  local unit
+
+  while IFS= read -r unit; do
+    ensure_timer_installed "$unit"
+    capture_rollback_state "$unit"
+    if ! timer_preflight "$unit"; then
+      rollback_units "${enabled_units[@]}" "$unit"
+      return 1
+    fi
+    systemctl --user unmask "$unit" >/dev/null 2>&1 || true
+    systemctl --user enable "$unit" >/dev/null 2>&1 || true
+    systemctl --user start "$unit" >/dev/null 2>&1 || true
+    enabled_units+=("$unit")
+    if ! verify_timer_dispatch "$unit"; then
+      rollback_units "${enabled_units[@]}"
+      return 1
+    fi
+  done < <(scope_units "$scope" "$filter")
+}
+
+disable_terminal_units() {
+  local scope="$1"
+  local filter="$2"
+  local unit
+
+  while IFS= read -r unit; do
+    ensure_timer_installed "$unit"
+    systemctl --user stop "$unit" >/dev/null 2>&1 || true
+    systemctl --user mask "$unit" >/dev/null 2>&1 || true
+  done < <(scope_units "$scope" "$filter")
 }
 
 cron_list_json() { "$OPENCODECTL" cron list --all --json; }
@@ -120,7 +310,7 @@ cron_job_status_by_name() {
 }
 
 print_status() {
-  echo "== Non-AI System Terminal Automation =="
+  echo "== Terminal Automation Timers =="
   while IFS= read -r unit; do
     local a e
     a="$(unit_active "$unit")"
@@ -129,7 +319,7 @@ print_status() {
   done < <(scope_units all)
 
   echo
-  echo "== AI-powered Terminal Automation (OpenCode cron) =="
+  echo "== Legacy OpenCode PR-CI Jobs =="
   while IFS= read -r name; do
     local id st
     id="$(cron_job_id_by_name "$name")"
@@ -139,7 +329,7 @@ print_status() {
     else
       printf '%-18s id=%-36s status=%s\n' "$name" "$id" "$st"
     fi
-  done < <(scope_prci all)
+  done < <(scope_legacy_prci_crons all)
 
   echo
   echo "== Failed user units =="
@@ -166,6 +356,22 @@ cron_off_ok() {
   [[ "$st" == "disabled" || -z "$st" ]]
 }
 
+set_legacy_prci_crons_enabled() {
+  local scope="$1"
+  local enabled="$2"
+  local name id
+
+  while IFS= read -r name; do
+    id="$(cron_job_id_by_name "$name")"
+    [[ -n "$id" ]] || continue
+    if [[ "$enabled" == "true" ]]; then
+      "$OPENCODECTL" cron enable "$id" >/dev/null
+    else
+      "$OPENCODECTL" cron disable "$id" >/dev/null
+    fi
+  done < <(scope_legacy_prci_crons "$scope")
+}
+
 set_off() {
   local scope="$1"
   local clean_failed="$2"
@@ -179,14 +385,8 @@ set_off() {
     systemctl --user mask "$unit" 2>/dev/null || true
   done < <(scope_units "$scope")
 
-  # OpenCode cron plane
-  while IFS= read -r name; do
-    local id
-    id="$(cron_job_id_by_name "$name")"
-    if [[ -n "$id" ]]; then
-      "$OPENCODECTL" cron disable "$id" >/dev/null
-    fi
-  done < <(scope_prci "$scope")
+  # Legacy OpenCode PR-CI plane
+  set_legacy_prci_crons_enabled "$scope" "false"
 
   if [[ "$clean_failed" == "yes" ]]; then
     systemctl --user reset-failed || true
@@ -209,7 +409,7 @@ assert_off() {
       echo "ASSERT_FAIL cron $name status=$(cron_job_status_by_name "$name")"
       ok=0
     fi
-  done < <(scope_prci "$scope")
+  done < <(scope_legacy_prci_crons "$scope")
 
   if [[ "$ok" -eq 1 ]]; then
     echo "ASSERT_OK off scope=$scope"
@@ -245,21 +445,51 @@ create_plan() {
         changes="$changes\n  $unit: active=$a enabled=$e → active=inactive enabled=masked"
       done < <(scope_units "$scope" "manual")
       ;;
+    enable-agent)
+      changes="Enable agent-terminal timers"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=active enabled=enabled"
+      done < <(scope_units "$scope" "agent")
+      ;;
+    disable-agent)
+      changes="Disable agent-terminal timers"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=inactive enabled=masked"
+      done < <(scope_units "$scope" "agent")
+      ;;
     enable-prci)
-      changes="Enable PR-CI cron jobs"
+      changes="Enable PR-CI terminal timers"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=active enabled=enabled"
+      done < <(scope_units "$scope" "prci")
       while IFS= read -r name; do
         local st
         st="$(cron_job_status_by_name "$name")"
-        changes="$changes\n  $name: status=$st → status=enabled"
-      done < <(scope_prci "$scope")
+        changes="$changes\n  $name: status=$st → status=disabled (legacy split-brain guard)"
+      done < <(scope_legacy_prci_crons "$scope")
       ;;
     disable-prci)
-      changes="Disable PR-CI cron jobs"
+      changes="Disable PR-CI terminal timers"
+      while IFS= read -r unit; do
+        local a e
+        a="$(unit_active "$unit")"
+        e="$(unit_enabled "$unit")"
+        changes="$changes\n  $unit: active=$a enabled=$e → active=inactive enabled=masked"
+      done < <(scope_units "$scope" "prci")
       while IFS= read -r name; do
         local st
         st="$(cron_job_status_by_name "$name")"
         changes="$changes\n  $name: status=$st → status=disabled"
-      done < <(scope_prci "$scope")
+      done < <(scope_legacy_prci_crons "$scope")
       ;;
     off)
       changes="Turn OFF all terminal automation"
@@ -273,7 +503,7 @@ create_plan() {
         local st
         st="$(cron_job_status_by_name "$name")"
         changes="$changes\n  $name: status=$st → disabled"
-      done < <(scope_prci "$scope")
+      done < <(scope_legacy_prci_crons "$scope")
       ;;
     *)
       echo "Unknown action: $action" >&2
@@ -319,37 +549,24 @@ execute_plan() {
 
   case "$action" in
     enable-manual)
-      while IFS= read -r unit; do
-        ensure_timer_installed "$unit"
-        systemctl --user unmask "$unit" 2>/dev/null || true
-        systemctl --user enable "$unit" 2>/dev/null || true
-        systemctl --user start "$unit" 2>/dev/null || true
-      done < <(scope_units "$scope" "manual")
+      enable_terminal_units "$scope" "manual"
       ;;
     disable-manual)
-      while IFS= read -r unit; do
-        ensure_timer_installed "$unit"
-        systemctl --user stop "$unit" 2>/dev/null || true
-        systemctl --user mask "$unit" 2>/dev/null || true
-      done < <(scope_units "$scope" "manual")
+      disable_terminal_units "$scope" "manual"
+      ;;
+    enable-agent)
+      enable_terminal_units "$scope" "agent"
+      ;;
+    disable-agent)
+      disable_terminal_units "$scope" "agent"
       ;;
     enable-prci)
-      while IFS= read -r name; do
-        local id
-        id="$(cron_job_id_by_name "$name")"
-        if [[ -n "$id" ]]; then
-          "$OPENCODECTL" cron enable "$id" >/dev/null
-        fi
-      done < <(scope_prci "$scope")
+      enable_terminal_units "$scope" "prci"
+      set_legacy_prci_crons_enabled "$scope" "false"
       ;;
     disable-prci)
-      while IFS= read -r name; do
-        local id
-        id="$(cron_job_id_by_name "$name")"
-        if [[ -n "$id" ]]; then
-          "$OPENCODECTL" cron disable "$id" >/dev/null
-        fi
-      done < <(scope_prci "$scope")
+      disable_terminal_units "$scope" "prci"
+      set_legacy_prci_crons_enabled "$scope" "false"
       ;;
     off)
       set_off "$scope" "no"

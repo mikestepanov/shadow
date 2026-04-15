@@ -18,33 +18,31 @@ roles=(auditor refactor)
 idx=$((10#$hour % ${#roles[@]}))
 role="${roles[$idx]}"
 
-if ! tmux has-session -t "$session" 2>/dev/null; then
-  echo "SKIP role=${role} session=${session} reason=session-missing"
-  exit 0
-fi
-
-pane="$(tmux list-panes -t "$session" -F '#{pane_id}' | head -n1)"
-target="$pane"
-
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/terminal_classifier.sh"
 source "$SCRIPT_DIR/terminal_mode_guard.sh"
 
-state="$(classify_terminal_for_send "$session")"
-if [[ "$state" == BUSY:* ]]; then
-  echo "NOOP:terminal-busy role=${role} session=${session} state=$state"
-  exit 0
-fi
-if [[ "$state" == STUCK:* ]]; then
-  echo "NOOP:terminal-stuck role=${role} session=${session} state=$state"
+if ! terminal_send_preflight "$session" "$workdir"; then
+  case "$TERMINAL_PREFLIGHT_REASON" in
+    session-missing|pane-missing)
+      echo "SKIP role=${role} session=${session} reason=${TERMINAL_PREFLIGHT_REASON}"
+      ;;
+    path-mismatch)
+      echo "SKIP role=${role} session=${session} reason=path-mismatch current=$TERMINAL_PREFLIGHT_CURRENT_PATH expected=$workdir"
+      ;;
+    terminal-not-ready)
+      if [[ "$TERMINAL_PREFLIGHT_STATE" == BUSY:* ]]; then
+        echo "NOOP:terminal-busy role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE"
+      elif [[ "$TERMINAL_PREFLIGHT_STATE" == STUCK:* ]]; then
+        echo "NOOP:terminal-stuck role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE"
+      else
+        echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-ping role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE"
+      fi
+      ;;
+  esac
   exit 0
 fi
 
-path_now="$(tmux display-message -p -t "$pane" '#{pane_current_path}')"
-if [[ "$path_now" != "$workdir" ]]; then
-  echo "SKIP role=${role} session=${session} reason=path-mismatch current=$path_now expected=$workdir"
-  exit 0
-fi
+target="$TERMINAL_PREFLIGHT_PANE"
 
 msg="$(cat <<EOF2
 MANDATORY ORDER (same branch only):

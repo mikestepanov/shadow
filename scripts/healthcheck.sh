@@ -91,10 +91,12 @@ print(f"nixelo_mode={nixelo.get('mode', 'missing')}")
 print(f"nixelo_alerts={nixelo.get('alerts', 'missing')}")
 print(f"nixelo_manual={nixelo.get('manual_timer', 'missing')}/{nixelo.get('manual_enabled', 'missing')}")
 print(f"nixelo_agent={nixelo.get('agent_timer', 'missing')}/{nixelo.get('agent_enabled', 'missing')}")
+print(f"nixelo_prci={nixelo.get('prci_timer', 'missing')}/{nixelo.get('prci_enabled', 'missing')}")
 print(f"starthub_mode={starthub.get('mode', 'missing')}")
 print(f"starthub_alerts={starthub.get('alerts', 'missing')}")
 print(f"starthub_manual={starthub.get('manual_timer', 'missing')}/{starthub.get('manual_enabled', 'missing')}")
 print(f"starthub_agent={starthub.get('agent_timer', 'missing')}/{starthub.get('agent_enabled', 'missing')}")
+print(f"starthub_prci={starthub.get('prci_timer', 'missing')}/{starthub.get('prci_enabled', 'missing')}")
 PY
 )"
 
@@ -107,10 +109,12 @@ PY
   nixelo_alerts="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("nixelo_alerts","missing"))')"
   nixelo_manual="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("nixelo_manual","missing"))')"
   nixelo_agent="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("nixelo_agent","missing"))')"
+  nixelo_prci="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("nixelo_prci","missing"))')"
   starthub_mode="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("starthub_mode","missing"))')"
   starthub_alerts="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("starthub_alerts","missing"))')"
   starthub_manual="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("starthub_manual","missing"))')"
   starthub_agent="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("starthub_agent","missing"))')"
+  starthub_prci="$(printf '%s\n' "$state_summary" | python3 -c 'import sys; d=dict(line.strip().split("=",1) for line in sys.stdin if "=" in line); print(d.get("starthub_prci","missing"))')"
 
   if [[ "$state_fresh" == "true" ]]; then
     ok "watcher-state freshness age=${state_age}s"
@@ -130,14 +134,22 @@ PY
     fail "watcher-state units_ok=false missing_units=$state_missing_units"
   fi
 
-  printf 'Summary nixelo  mode=%s alerts=%s manual=%s agent=%s\n' "$nixelo_mode" "$nixelo_alerts" "$nixelo_manual" "$nixelo_agent"
-  printf 'Summary starthub mode=%s alerts=%s manual=%s agent=%s\n' "$starthub_mode" "$starthub_alerts" "$starthub_manual" "$starthub_agent"
+  printf 'Summary nixelo  mode=%s alerts=%s manual=%s agent=%s prci=%s\n' "$nixelo_mode" "$nixelo_alerts" "$nixelo_manual" "$nixelo_agent" "$nixelo_prci"
+  printf 'Summary starthub mode=%s alerts=%s manual=%s agent=%s prci=%s\n' "$starthub_mode" "$starthub_alerts" "$starthub_manual" "$starthub_agent" "$starthub_prci"
+
+  if [[ "$nixelo_alerts" != "none" ]]; then
+    fail "nixelo alerts=$nixelo_alerts manual=$nixelo_manual agent=$nixelo_agent prci=$nixelo_prci"
+  fi
+
+  if [[ "$starthub_alerts" != "none" ]]; then
+    fail "starthub alerts=$starthub_alerts manual=$starthub_manual agent=$starthub_agent prci=$starthub_prci"
+  fi
 fi
 
 cron_summary="$($OPENCODECTL cron list --all --json 2>/dev/null | python3 -c 'import json, sys
 data = json.load(sys.stdin)
 jobs = {job.get("name"): job for job in data.get("jobs", [])}
-for name in ("Heartbeat", "pr-ci-nixelo", "pr-ci-starthub"):
+for name in ("Heartbeat",):
     state = jobs.get(name, {}).get("state", {})
     enabled = jobs.get(name, {}).get("enabled")
     status = state.get("lastStatus", "never")
@@ -158,16 +170,10 @@ while IFS= read -r line; do
     else
       fail "$name enabled=$enabled status=$status running=$running"
     fi
-  else
-    if [[ "$status" == "error" || "$status" == "not_found" || "$status" == "unknown" ]]; then
-      fail "$name enabled=$enabled status=$status running=$running"
-    else
-      ok "$name enabled=$enabled status=$status running=$running"
-    fi
   fi
 done <<< "$cron_summary"
 
-for unit in manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer; do
+for unit in manual-terminal-nixelo.timer manual-terminal-starthub.timer agent-terminal-nixelo.timer agent-terminal-starthub.timer prci-terminal-nixelo.timer prci-terminal-starthub.timer; do
   load_state="$(systemctl --user show "$unit" --property=LoadState --value 2>/dev/null || echo not-found)"
   file_state="$(unit_file_state "$unit")"
   active_state="$(unit_state "$unit")"
@@ -231,6 +237,8 @@ summary = {
             "manual_enabled": repo.get('manual_enabled'),
             "agent_timer": repo.get('agent_timer'),
             "agent_enabled": repo.get('agent_enabled'),
+            "prci_timer": repo.get('prci_timer'),
+            "prci_enabled": repo.get('prci_enabled'),
             "service_health": repo.get('service_health'),
             "at_prompt": repo.get('at_prompt'),
         }

@@ -34,13 +34,14 @@ RUNNER_RE='(pnpm|npm|npx|tsx|playwright|vitest|jest|tsc|pytest|python|gradle|mvn
 QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued messages|^[[:space:]]*QUEUED[[:space:]]*$)'
 
 # Prompt glyphs
-PROMPT_RE='^[[:space:]]*(>|›|❯)([[:space:]]*$|[[:space:]]+.*)'
+# OpenCode uses a box-drawing gutter for the live input row.
+PROMPT_RE='^[[:space:]]*(>|›|❯|┃)([[:space:]]*$|[[:space:]]+.*)'
 
 # Active work indicators (only meaningful within 5 lines of cursor)
 WORK_INDICATOR_RE='(Working \(|esc to interrupt|Waiting for background terminal)'
 
-# OpenCode footer markers that indicate the static UI is still interactive
-OPENCODE_READY_RE='(ctrl\+p commands|OpenCode [0-9])'
+# OpenCode markers that indicate the static UI is still interactive.
+OPENCODE_READY_RE='(ctrl\+p commands|OpenCode [0-9]|Ask anything\.\.\.|tab agents|Build[[:space:]]+[[:alnum:].-]+)'
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ _work_indicator_near_cursor() {
 
 _looks_like_opencode_ready_ui() {
   local pane="$1"
-  _pane_text "$pane" | tail -12 | grep -Eiq "$OPENCODE_READY_RE"
+  _pane_text "$pane" | tail -40 | grep -Eiq "$OPENCODE_READY_RE"
 }
 
 # ── Main classifier ────────────────────────────────────────────────
