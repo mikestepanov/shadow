@@ -14,7 +14,7 @@ case "$session" in
 esac
 
 hour=$(TZ=America/Chicago date +%H)
-roles=(bolt sentinel spectra auditor palette inspector refactor schema scribe librarian)
+roles=(auditor refactor)
 idx=$((10#$hour % ${#roles[@]}))
 role="${roles[$idx]}"
 
@@ -48,12 +48,13 @@ fi
 
 msg="$(cat <<EOF2
 MANDATORY ORDER (same branch only):
-1) Finalize the current in-progress unit on your CURRENT branch and run checks that are available.
-2) Do NOT create/switch branches. Stay on this exact branch.
-3) Then run exactly ONE focused ${role} task from .agents/${role}.txt on this same branch.
-4) After that one task, run checks and commit once with a focused message, then stop.
-5) If blocked, update the relevant TODO with blocker + next step and commit that TODO update, then stop.
-Hard rules: no destructive git commands; no new branches; no background branch fan-out.
+1) Stay on your CURRENT branch. Do NOT create or switch branches.
+2) Work strictly within the ${role} facet defined in .agents/${role}.txt.
+3) Continue any in-progress work only if it clearly belongs to this ${role} facet.
+4) Go deep on this ${role} workstream. If a broader overhaul is needed to solve the ${role} problem correctly, do it. You may make multiple related fixes in this run as long as they all belong to the same ${role} facet.
+5) Keep the relevant TODOs and notes accurate as the work evolves.
+6) Run the relevant checks and commit at a clean, coherent checkpoint with a focused message.
+Hard rules: no destructive git commands; no new branches; no unrelated work; no background branch fan-out.
 EOF2
 )"
 
