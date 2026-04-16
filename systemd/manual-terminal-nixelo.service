@@ -1,6 +1,6 @@
 [Unit]
-Description=Manual terminal nudge for nixelo tmux session
+Description=Manual OpenCode dispatch for nixelo repo
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-manual-work-ping nixelo
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping nixelo

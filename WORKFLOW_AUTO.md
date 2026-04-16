@@ -25,7 +25,8 @@ Restore operational rules after compaction/restart so automation behavior stays 
 
 Manual timer semantics:
 - `manual-terminal-*` timers are still systemd units
-- their services dispatch the shared terminal automation scripts in `scripts/tmux-*-work-ping`
+- manual services dispatch via `scripts/opencodectl manual-ping <repo>`
+- agent and PR-CI services dispatch via `scripts/tmux-*-work-ping`
 - all terminal modes must pass the same tmux session/path/readiness preflight before enablement
 
 ## Runtime Policy

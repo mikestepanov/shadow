@@ -61,7 +61,7 @@ recovery:
 - ❌ **NEVER** create, close, or merge PRs
 - ❌ **NEVER** run `systemctl` start/stop/enable/disable directly
 - ❌ **NEVER** run `gh pr create/close/merge`
-- ❌ **NEVER** run terminal dispatch scripts directly (`scripts/tmux-manual-work-ping <repo>`, `scripts/tmux-agent-work-ping <repo>`, `scripts/tmux-prci-work-ping <repo>`)
+- ❌ **NEVER** run terminal dispatch scripts directly (`scripts/opencodectl manual-ping <repo>`, `scripts/tmux-agent-work-ping <repo>`, `scripts/tmux-prci-work-ping <repo>`)
 - ❌ **NEVER** send `Escape`, `/stop`, `C-c`, or any input to tmux panes
 - ❌ **NEVER** run `scripts/opencodectl cron enable/disable` directly
 - ❌ **NEVER** enable/disable/start/stop nixelo manual timer — Mikhail handles the auto-nixelo lifecycle manually. If nixelo timer is off, it's off on purpose. Do NOT re-enable it.

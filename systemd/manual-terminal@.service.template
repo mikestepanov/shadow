@@ -1,6 +1,6 @@
 [Unit]
-Description=Manual terminal nudge for %i tmux session
+Description=Manual OpenCode dispatch for %i repo
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-manual-work-ping %i
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping %i

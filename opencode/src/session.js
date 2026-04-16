@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { getSessionById, listSessionMessages, listSessions, promptSessionAsync, sessionExists } from "./client.js";
@@ -59,13 +59,18 @@ async function loadManualSessionStore() {
     if (error && typeof error === "object" && error.code === "ENOENT") {
       return {};
     }
+    if (error instanceof SyntaxError) {
+      return {};
+    }
     throw error;
   }
 }
 
 async function saveManualSessionStore(store) {
   await ensureParent(MANUAL_SESSIONS_PATH);
-  await writeFile(MANUAL_SESSIONS_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const tempPath = `${MANUAL_SESSIONS_PATH}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  await rename(tempPath, MANUAL_SESSIONS_PATH);
 }
 
 function manualConfig(repo) {

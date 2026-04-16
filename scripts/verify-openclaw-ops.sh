@@ -55,12 +55,11 @@ expect_file_contains "$REPO/systemd/prci-terminal-nixelo.timer" "OnCalendar=*-*-
 expect_file_contains "$REPO/systemd/prci-terminal-starthub.timer" "OnCalendar=*-*-* *:00/5:00"
 
 # 4) Ping script reliability signatures still present
-MANUAL_PING_SCRIPT="$REPO/scripts/tmux-manual-work-ping"
 AGENT_PING_SCRIPT="$REPO/scripts/tmux-agent-work-ping"
 PRCI_PING_SCRIPT="$REPO/scripts/tmux-prci-work-ping"
-expect_file_contains "$MANUAL_PING_SCRIPT" 'terminal_send_preflight "$session" "$workdir"'
-expect_file_contains "$MANUAL_PING_SCRIPT" 'source "$SCRIPT_DIR/scripts/terminal_mode_guard.sh"'
-expect_file_contains "$MANUAL_PING_SCRIPT" 'report_preflight_failure'
+expect_file_contains "$REPO/systemd/manual-terminal-nixelo.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping nixelo'
+expect_file_contains "$REPO/systemd/manual-terminal-starthub.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping starthub'
+expect_file_contains "$REPO/systemd/manual-terminal@.service.template" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping %i'
 expect_file_contains "$AGENT_PING_SCRIPT" 'send_tmux_text_enter "$target" "$msg"'
 expect_file_contains "$AGENT_PING_SCRIPT" 'terminal_send_preflight "$session" "$workdir"'
 expect_file_contains "$AGENT_PING_SCRIPT" 'source "$SCRIPT_DIR/terminal_mode_guard.sh"'
