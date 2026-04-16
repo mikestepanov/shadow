@@ -406,6 +406,42 @@ async function setOpencodeCron(cronId, enable) {
   }).catch(() => {});
 }
 
+async function runLegacyManualPing(repo) {
+  try {
+    const { stdout } = await execFileAsync(resolveRepoPath("scripts", "tmux-manual-work-ping"), [repo], {
+      cwd: resolveRepoPath(),
+      env: process.env,
+    });
+    const lines = String(stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const lastLine = lines[lines.length - 1] || "";
+
+    if (lastLine.startsWith("SENT ")) {
+      return { ok: true, action: "sent", message: lastLine };
+    }
+    if (lastLine.startsWith("TRANSITION ")) {
+      return { ok: true, action: "transition", message: lastLine };
+    }
+    if (lastLine.startsWith("NOOP:") || lastLine.startsWith("SKIP ") || lastLine.startsWith("BLOCKED_HUMAN:")) {
+      return { ok: true, action: "noop", message: lastLine };
+    }
+
+    return {
+      ok: false,
+      action: "error",
+      error: `Unexpected manual ping output for ${repo}${lastLine ? `: ${lastLine}` : ""}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      action: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function getLiveSessionForRepo(repo) {
   const store = await loadManualSessionStore();
   const existing = store[repo];
@@ -499,104 +535,24 @@ export async function ensureManualSession(repo) {
 }
 
 export async function runManualPing(repo) {
-  const config = manualConfig(repo);
-  if (!config) {
+  if (!manualConfig(repo)) {
     return { ok: false, error: `Unknown manual repo ${repo}` };
   }
 
-  const session = await ensureManualSession(repo);
-  if (!session.ok) {
-    return session;
-  }
-
-  const todo = await readTodoStats(config);
-  if (!todo.exists) {
+  const legacyResult = await runLegacyManualPing(repo);
+  if (legacyResult.ok) {
     return {
       ok: true,
       repo,
-      sessionId: session.sessionId,
-      action: "skip",
-      message: `NOOP:manual-missing-todo repo=${repo} path=${todo.todoPath}`,
+      action: legacyResult.action,
+      message: legacyResult.message,
     };
   }
-
-  const snapshot = await latestSessionSnapshot(session.sessionId);
-  const canDispatch = snapshot.state !== "busy" || snapshot.staleBusy;
-
-  if (todo.checklistItems === 0) {
-    const prompt = `Read ${config.todoFile}. Do NOT start implementation yet. First convert this TODO into markdown checkboxes (- [ ] for open items, - [x] for done items). Preserve all existing tasks/content. After converting, continue with the highest-impact open checkbox.`;
-    if (!canDispatch) {
-      return {
-        ok: true,
-        repo,
-        sessionId: session.sessionId,
-        action: "noop",
-        message: `NOOP:manual-busy repo=${repo} session=${session.sessionId}`,
-      };
-    }
-
-    await dispatchAttachedPrompt(session.sessionId, config, prompt);
-    return {
-      ok: true,
-      repo,
-      sessionId: session.sessionId,
-      action: "sent",
-      message: `SENT manual repo=${repo} session=${session.sessionId} msg=${prompt}`,
-    };
-  }
-
-  if (todo.openItems === 0) {
-    if (!(await autoGateEnabled(config))) {
-      return {
-        ok: true,
-        repo,
-        sessionId: session.sessionId,
-        action: "skip",
-        message: `NOOP:auto-nixelo-off repo=${repo} reason=todo-done but auto-nixelo disabled`,
-      };
-    }
-
-    await setSystemdTimer(config.timerUnit, false);
-    await setOpencodeCron(config.prciCronId, true);
-    await telegramNotify(`🔄 ${repo}: TODO is done (${config.todoFile}). Disabled manual timer, enabled PR-CI. Transition complete.`);
-
-    return {
-      ok: true,
-      repo,
-      sessionId: session.sessionId,
-      action: "transition",
-      message: `SENT transition repo=${repo} reason=todo-done (0 open items in ${config.todoFile})`,
-    };
-  }
-
-  const lane = getLaneConfig("manual", repo);
-  if (!lane) {
-    return { ok: false, error: `No manual lane for ${repo}` };
-  }
-
-  if (!canDispatch) {
-    return {
-      ok: true,
-      repo,
-      sessionId: session.sessionId,
-      action: "noop",
-      message: `NOOP:manual-busy repo=${repo} session=${session.sessionId}`,
-    };
-  }
-
-  if (snapshot.staleBusy) {
-    const staleMinutes = Math.floor((Date.now() - snapshot.createdAt) / 60000);
-    await telegramNotify(`Recovered stale OpenCode manual session for ${repo} after ${staleMinutes}m stuck busy by dispatching a fresh attached runner.`);
-  }
-
-  await dispatchAttachedPrompt(session.sessionId, config, lane.prompt);
 
   return {
-    ok: true,
+    ok: false,
     repo,
-    sessionId: session.sessionId,
-    action: "sent",
-    message: `SENT manual repo=${repo} session=${session.sessionId} msg=${lane.prompt}`,
+    error: legacyResult.error || `Manual ping failed for ${repo}`,
   };
 }
 
