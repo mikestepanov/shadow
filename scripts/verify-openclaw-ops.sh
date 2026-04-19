@@ -55,11 +55,17 @@ expect_file_contains "$REPO/systemd/prci-terminal-nixelo.timer" "OnCalendar=*-*-
 expect_file_contains "$REPO/systemd/prci-terminal-starthub.timer" "OnCalendar=*-*-* *:00/5:00"
 
 # 4) Ping script reliability signatures still present
-AGENT_PING_SCRIPT="$REPO/scripts/tmux-agent-work-ping"
-PRCI_PING_SCRIPT="$REPO/scripts/tmux-prci-work-ping"
+AGENT_PING_SCRIPT="$REPO/scripts/agent-terminal-ping"
+PRCI_PING_SCRIPT="$REPO/scripts/prci-terminal-ping"
 expect_file_contains "$REPO/systemd/manual-terminal-nixelo.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping nixelo'
 expect_file_contains "$REPO/systemd/manual-terminal-starthub.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping starthub'
 expect_file_contains "$REPO/systemd/manual-terminal@.service.template" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl manual-ping %i'
+expect_file_contains "$REPO/systemd/agent-terminal-nixelo.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping nixelo'
+expect_file_contains "$REPO/systemd/agent-terminal-starthub.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping starthub'
+expect_file_contains "$REPO/systemd/agent-terminal@.service.template" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping %i'
+expect_file_contains "$REPO/systemd/prci-terminal-nixelo.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl prci-ping nixelo'
+expect_file_contains "$REPO/systemd/prci-terminal-starthub.service" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl prci-ping starthub'
+expect_file_contains "$REPO/systemd/prci-terminal@.service.template" 'ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl prci-ping %i'
 expect_file_contains "$AGENT_PING_SCRIPT" 'send_tmux_text_enter "$target" "$msg"'
 expect_file_contains "$AGENT_PING_SCRIPT" 'terminal_send_preflight "$session" "$workdir"'
 expect_file_contains "$AGENT_PING_SCRIPT" 'source "$SCRIPT_DIR/terminal_mode_guard.sh"'

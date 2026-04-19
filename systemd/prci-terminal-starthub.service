@@ -3,4 +3,4 @@ Description=PR-CI terminal nudge for starthub tmux session
 
 [Service]
 Type=oneshot
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-prci-work-ping starthub
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl prci-ping starthub

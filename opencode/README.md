@@ -24,10 +24,13 @@ Current commands:
 - `node ./src/index.js safe-command review`
 - `node ./src/index.js wait`
 - `node ./src/index.js lanes`
+- `node ./src/index.js lane-field manual starthub prompt`
 - `node ./src/index.js lane-run manual starthub --title 'Greeting quick check-in'`
 - `node ./src/index.js enqueue-lane manual starthub --title 'Greeting quick check-in'`
 - `node ./src/index.js run-queue`
 - `node ./src/index.js auto-cycle nixelo`
+- `node ./src/index.js agent-ping starthub`
+- `node ./src/index.js prci-ping starthub`
 - `node ./src/index.js cron list --all --json`
 - `node ./src/index.js cron enable c1ac22ab-b891-4b8f-bbdb-ea9fe9d0825c`
 - `node ./src/index.js cron run 0347a94f-872c-4d3a-a583-81fb6758461d`

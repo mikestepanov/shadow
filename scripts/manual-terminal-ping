@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTO_NIXELO_STATE="${SCRIPT_DIR}/auto-nixelo-enabled.json"
+OPENCODECTL="${SCRIPT_DIR}/scripts/opencodectl"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
@@ -19,22 +20,20 @@ is_auto_nixelo_enabled() {
 }
 
 session="$1"
-case "$session" in
-  nixelo)
-    workdir="$HOME/Desktop/nixelo"
-    todo_file="todos-hot/README.md"
-    msg="If the current objective is already clear, continue. If it is not clear, first review 'todos-hot/README.md' and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly: proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
-    ;;
-  starthub)
-    workdir="$HOME/Desktop/StartHub"
-    todo_file="todos/planning/postgres-migration.md"
-    msg="If the current objective is already clear, continue. If it is not clear, first review 'todos/planning/postgres-migration.md' to recover the exact objective, current phase, and work order. Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly: proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next."
-    ;;
-  *)
-    echo "invalid session: $session" >&2
-    exit 2
-    ;;
-esac
+if ! workdir="$($OPENCODECTL lane-field manual "$session" workdir 2>/dev/null)"; then
+  echo "invalid session: $session" >&2
+  exit 2
+fi
+
+if ! todo_file="$($OPENCODECTL lane-field manual "$session" todoFile 2>/dev/null)"; then
+  echo "missing manual todo file for session: $session" >&2
+  exit 2
+fi
+
+if ! msg="$($OPENCODECTL lane-field manual "$session" prompt 2>/dev/null)"; then
+  echo "missing manual prompt for session: $session" >&2
+  exit 2
+fi
 
 if ! tmux has-session -t "$session" 2>/dev/null; then
   echo "SKIP manual session=${session} reason=session-missing"
@@ -177,8 +176,6 @@ if [[ "$open_items" -eq 0 ]]; then
 
   exit 0
 fi
-
-# msg is set in the case block above
 
 if ! terminal_send_preflight "$session" "$workdir"; then
   report_preflight_failure "final-recheck"

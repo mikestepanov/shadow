@@ -4,4 +4,4 @@ Description=Agent terminal dispatch for starthub tmux session
 [Service]
 Type=oneshot
 EnvironmentFile=/home/mikhail/.config/shadow/opencode.env
-ExecStart=/home/mikhail/Desktop/shadow/scripts/tmux-agent-work-ping starthub
+ExecStart=/home/mikhail/Desktop/shadow/scripts/opencodectl agent-ping starthub

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OPENCODECTL="${SCRIPT_DIR}/scripts/opencodectl"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
@@ -9,20 +10,15 @@ if [[ $# -ne 1 ]]; then
 fi
 
 session="$1"
-case "$session" in
-  nixelo)
-    workdir="$HOME/Desktop/nixelo"
-    dispatch_script="$SCRIPT_DIR/scripts/pr_ci_nixelo_dispatch.sh"
-    ;;
-  starthub)
-    workdir="$HOME/Desktop/StartHub"
-    dispatch_script="$SCRIPT_DIR/scripts/pr_ci_starthub_dispatch.sh"
-    ;;
-  *)
-    echo "invalid session: $session" >&2
-    exit 2
-    ;;
-esac
+if ! workdir="$($OPENCODECTL lane-field prci "$session" workdir 2>/dev/null)"; then
+  echo "invalid session: $session" >&2
+  exit 2
+fi
+
+if ! dispatch_script="$($OPENCODECTL lane-field prci "$session" dispatchScript 2>/dev/null)"; then
+  echo "missing PR-CI dispatch script for session: $session" >&2
+  exit 2
+fi
 
 source "$SCRIPT_DIR/scripts/terminal_mode_guard.sh"
 

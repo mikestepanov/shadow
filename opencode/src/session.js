@@ -2,33 +2,13 @@ import { execFile, spawn } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-import { getSessionById, listSessionMessages, listSessions, promptSessionAsync, sessionExists } from "./client.js";
-import { getLaneConfig } from "./lanes.js";
+import { getSessionById, listSessions } from "./client.js";
+import { getRepoConfig } from "./lanes.js";
 import { resolveOpencodeVarPath, resolveRepoPath } from "./paths.js";
 
 const execFileAsync = promisify(execFile);
 const MANUAL_SESSIONS_PATH = resolveOpencodeVarPath("manual-sessions.json");
 const OPENCODE_BIN = "/run/current-system/sw/bin/opencode";
-const STALE_BUSY_MS = Number(process.env.OPENCODE_STALE_BUSY_MS || 90 * 60 * 1000);
-
-const MANUAL_CONFIG = {
-  nixelo: {
-    title: "nixelo",
-    dir: resolveRepoPath("..", "nixelo"),
-    timerUnit: "manual-terminal-nixelo.timer",
-    prciCronId: "c1ac22ab-b891-4b8f-bbdb-ea9fe9d0825c",
-    todoFile: "todos-hot/README.md",
-    autoGateFile: resolveRepoPath("auto-nixelo-enabled.json"),
-  },
-  starthub: {
-    title: "starthub",
-    dir: resolveRepoPath("..", "StartHub"),
-    timerUnit: "manual-terminal-starthub.timer",
-    prciCronId: "4e8a1a98-a905-4f77-9373-9332f7e46e77",
-    todoFile: "todos/planning/postgres-migration.md",
-    autoGateFile: null,
-  },
-};
 
 function toSessionArray(value) {
   return Array.isArray(value) ? value : [];
@@ -74,7 +54,15 @@ async function saveManualSessionStore(store) {
 }
 
 function manualConfig(repo) {
-  return MANUAL_CONFIG[repo] || null;
+  const repoConfig = getRepoConfig(repo);
+  if (!repoConfig) {
+    return null;
+  }
+
+  return {
+    title: repoConfig.title,
+    dir: repoConfig.workdir,
+  };
 }
 
 function parseJsonLines(raw) {
@@ -186,229 +174,9 @@ async function createAttachedSession(repo, config) {
   });
 }
 
-async function dispatchAttachedPrompt(sessionId, config, prompt) {
-  try {
-    await promptSessionAsync(sessionId, {
-      parts: [{ type: "text", text: prompt }],
-    });
-
-    const maxWait = 120000;
-    const start = Date.now();
-    while (Date.now() - start < maxWait) {
-      await new Promise((r) => setTimeout(r, 3000));
-      const messages = await listSessionMessages(sessionId, { limit: 1 });
-      if (Array.isArray(messages) && messages[0]) {
-        const msg = messages[0];
-        const role = msg?.info?.role;
-        const finish = msg?.info?.finish;
-        const parts = Array.isArray(msg?.parts) ? msg.parts : [];
-        
-        const runningTools = parts.filter((p) => p?.state?.status === "running");
-        if (runningTools.length > 0) {
-          const toolTimes = runningTools.map((t) => t?.state?.time?.start || 0).filter(Number.isFinite);
-          if (toolTimes.length > 0) {
-            const oldestTool = Math.min(...toolTimes);
-            if (Date.now() - oldestTool > 180000) {
-              return { ok: true, sessionId, accepted: true, stale: true, recovered: true };
-            }
-          }
-        }
-        
-        const hasRunning = parts.some((p) => p?.state?.status === "running");
-        if (role === "assistant" && (finish === "stop" || finish === "error")) {
-          return { ok: true, sessionId, completed: true };
-        }
-        if (!hasRunning && role === "assistant") {
-          return { ok: true, sessionId, completed: true };
-        }
-      }
-    }
-
-    return { ok: true, sessionId, accepted: true, waited: true };
-  } catch (err) {
-    return {
-      ok: false,
-      sessionId,
-      accepted: false,
-      error: String(err),
-    };
-  }
-}
-
-async function readTodoStats(config) {
-  const todoPath = `${config.dir}/${config.todoFile}`;
-  let todoRaw = "";
-  try {
-    todoRaw = await readFile(todoPath, "utf8");
-  } catch {
-    return { todoPath, exists: false, checklistItems: 0, openItems: 0 };
-  }
-
-  const filesToCheck = [todoPath];
-  const todoDir = dirname(todoPath);
-  const links = [...todoRaw.matchAll(/\]\((\.?\/?[^)]+\.md)\)/g)].map((match) => match[1]);
-  for (const linked of links) {
-    const resolved = linked.startsWith("/") ? linked : `${todoDir}/${linked.replace(/^\.\//, "")}`;
-    try {
-      await readFile(resolved, "utf8");
-      filesToCheck.push(resolved);
-    } catch {
-      // ignore missing linked files
-    }
-  }
-
-  let openItems = 0;
-  let checklistItems = 0;
-  for (const filePath of filesToCheck) {
-    const raw = await readFile(filePath, "utf8");
-    openItems += (raw.match(/^\s*- \[ \]/gm) || []).length;
-    checklistItems += (raw.match(/^\s*- \[[ xX]\]/gm) || []).length;
-  }
-
-  return { todoPath, exists: true, checklistItems, openItems };
-}
-
-async function autoGateEnabled(config) {
-  if (!config.autoGateFile) {
-    return true;
-  }
-  try {
-    const raw = await readFile(config.autoGateFile, "utf8");
-    const parsed = JSON.parse(raw);
-    return Boolean(parsed?.enabled);
-  } catch {
-    return false;
-  }
-}
-
-function latestMessageState(message) {
-  if (!message || typeof message !== "object") {
-    return "unknown";
-  }
-  const role = message?.info?.role;
-  const finish = message?.info?.finish;
-  const parts = Array.isArray(message?.parts) ? message.parts : [];
-  
-  const runningTools = parts.filter((p) => p?.state?.status === "running");
-  if (runningTools.length > 0) {
-    const toolTimes = runningTools.map((t) => t?.state?.time?.start || 0).filter(Number.isFinite);
-    if (toolTimes.length > 0) {
-      const oldestTool = Math.min(...toolTimes);
-      if (Date.now() - oldestTool > 300000) {
-        return "stale";
-      }
-    }
-  }
-  
-  if (role === "assistant") {
-    if (finish === "stop") {
-      return "idle";
-    }
-    if (parts.some((part) => part?.type === "step-finish" && part?.reason === "stop")) {
-      return "idle";
-    }
-    if (parts.some((part) => part?.type === "step-start" || part?.type === "reasoning")) {
-      return "busy";
-    }
-  }
-  if (role === "user") {
-    const hasAssistantResponse = parts.some((part) => part?.type === "step-start");
-    return hasAssistantResponse ? "busy" : "waiting";
-  }
-  return "unknown";
-}
-
-function latestMessageCreatedAt(message) {
-  return Number(message?.info?.time?.created || message?.time?.created || 0);
-}
-
-function isStaleBusyMessage(message, state) {
-  if (state !== "busy") {
-    return false;
-  }
-
-  const createdAt = latestMessageCreatedAt(message);
-  if (!Number.isFinite(createdAt) || createdAt <= 0) {
-    return false;
-  }
-
-  if (Date.now() - createdAt < STALE_BUSY_MS) {
-    return false;
-  }
-
-  const role = message?.info?.role;
-  const finish = message?.info?.finish;
-  const parts = Array.isArray(message?.parts) ? message.parts : [];
-
-  if (role === "user") {
-    return true;
-  }
-
-  if (role === "assistant") {
-    if (finish === "stop") {
-      return false;
-    }
-    if (parts.some((part) => part?.type === "step-finish" && part?.reason === "stop")) {
-      return false;
-    }
-    return true;
-  }
-
-  return false;
-}
-
-async function latestSessionSnapshot(sessionId) {
-  try {
-    const messages = await listSessionMessages(sessionId, { limit: 1 });
-    const message = Array.isArray(messages) ? messages[0] : null;
-    const state = latestMessageState(message);
-    return {
-      state,
-      message,
-      createdAt: latestMessageCreatedAt(message),
-      staleBusy: isStaleBusyMessage(message, state),
-    };
-  } catch {
-    return {
-      state: "unknown",
-      message: null,
-      createdAt: 0,
-      staleBusy: false,
-    };
-  }
-}
-
-async function telegramNotify(text) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (typeof token !== "string" || token.trim() === "") {
-    return;
-  }
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      chat_id: "780599199",
-      text,
-    }),
-  }).catch(() => {});
-}
-
-async function setSystemdTimer(unit, enable) {
-  await execFileAsync("systemctl", ["--user", enable ? "enable" : "disable", "--now", unit], {
-    env: process.env,
-  }).catch(() => {});
-}
-
-async function setOpencodeCron(cronId, enable) {
-  await execFileAsync("node", [resolveRepoPath("opencode", "src", "index.js"), "cron", enable ? "enable" : "disable", cronId], {
-    cwd: resolveRepoPath(),
-    env: process.env,
-  }).catch(() => {});
-}
-
 async function runLegacyManualPing(repo) {
   try {
-    const { stdout } = await execFileAsync(resolveRepoPath("scripts", "tmux-manual-work-ping"), [repo], {
+    const { stdout } = await execFileAsync(resolveRepoPath("scripts", "manual-terminal-ping"), [repo], {
       cwd: resolveRepoPath(),
       env: process.env,
     });
@@ -432,6 +200,69 @@ async function runLegacyManualPing(repo) {
       ok: false,
       action: "error",
       error: `Unexpected manual ping output for ${repo}${lastLine ? `: ${lastLine}` : ""}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      action: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function runLegacyAgentPing(repo) {
+  try {
+    const { stdout } = await execFileAsync(resolveRepoPath("scripts", "agent-terminal-ping"), [repo], {
+      cwd: resolveRepoPath(),
+      env: process.env,
+    });
+    const lines = String(stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const lastLine = lines[lines.length - 1] || "";
+
+    if (lastLine.startsWith("SENT ")) {
+      return { ok: true, action: "sent", message: lastLine };
+    }
+    if (lastLine.startsWith("NOOP:") || lastLine.startsWith("SKIP ") || lastLine.startsWith("BLOCKED_HUMAN:")) {
+      return { ok: true, action: "noop", message: lastLine };
+    }
+
+    return {
+      ok: false,
+      action: "error",
+      error: `Unexpected agent ping output for ${repo}${lastLine ? `: ${lastLine}` : ""}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      action: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function runLegacyPrciPing(repo) {
+  try {
+    const { stdout } = await execFileAsync(resolveRepoPath("scripts", "prci-terminal-ping"), [repo], {
+      cwd: resolveRepoPath(),
+      env: process.env,
+    });
+    const lines = String(stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const lastLine = lines[lines.length - 1] || "";
+
+    if (lastLine.startsWith("OK:") || lastLine.startsWith("NOOP:") || lastLine.startsWith("PR-CI:") || lastLine.startsWith("SKIP ") || lastLine.startsWith("BLOCKED_HUMAN:")) {
+      return { ok: true, action: "noop", message: lastLine };
+    }
+
+    return {
+      ok: false,
+      action: "error",
+      error: `Unexpected PR-CI ping output for ${repo}${lastLine ? `: ${lastLine}` : ""}`,
     };
   } catch (error) {
     return {
@@ -557,47 +388,46 @@ export async function runManualPing(repo) {
 }
 
 export async function runAgentPing(repo) {
-  const config = manualConfig(repo);
-  if (!config) {
+  if (!manualConfig(repo)) {
     return { ok: false, error: `Unknown agent repo ${repo}` };
   }
 
-  const session = await ensureManualSession(repo);
-  if (!session.ok) {
-    return session;
-  }
-
-  const snapshot = await latestSessionSnapshot(session.sessionId);
-  const canDispatch = snapshot.state !== "busy" || snapshot.staleBusy;
-
-  const lane = getLaneConfig("agent", repo);
-  if (!lane) {
-    return { ok: false, error: `No agent lane for ${repo}` };
-  }
-
-  if (!canDispatch) {
+  const legacyResult = await runLegacyAgentPing(repo);
+  if (legacyResult.ok) {
     return {
       ok: true,
       repo,
-      sessionId: session.sessionId,
-      action: "noop",
-      message: `NOOP:agent-busy repo=${repo} session=${session.sessionId}`,
+      action: legacyResult.action,
+      message: legacyResult.message,
     };
   }
 
-  if (snapshot.staleBusy) {
-    const staleMinutes = Math.floor((Date.now() - snapshot.createdAt) / 60000);
-    await telegramNotify(`Recovered stale OpenCode agent session for ${repo} after ${staleMinutes}m stuck busy by dispatching a fresh attached runner.`);
+  return {
+    ok: false,
+    repo,
+    error: legacyResult.error || `Agent ping failed for ${repo}`,
+  };
+}
+
+export async function runPrciPing(repo) {
+  if (!manualConfig(repo)) {
+    return { ok: false, error: `Unknown PR-CI repo ${repo}` };
   }
 
-  await dispatchAttachedPrompt(session.sessionId, config, lane.prompt);
+  const legacyResult = await runLegacyPrciPing(repo);
+  if (legacyResult.ok) {
+    return {
+      ok: true,
+      repo,
+      action: legacyResult.action,
+      message: legacyResult.message,
+    };
+  }
 
   return {
-    ok: true,
+    ok: false,
     repo,
-    sessionId: session.sessionId,
-    action: "sent",
-    message: `SENT agent repo=${repo} session=${session.sessionId} msg=${lane.prompt}`,
+    error: legacyResult.error || `PR-CI ping failed for ${repo}`,
   };
 }
 

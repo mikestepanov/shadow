@@ -15,7 +15,7 @@ Goal: detect real progress, auto-recover stuck OpenCode-driven terminal automati
   - `manual-terminal-starthub.timer`
   - `agent-terminal-nixelo.timer`
   - `agent-terminal-starthub.timer`
-- Legacy `tmux-agent-work-ping*` names are historical in intervention logs below.
+- Legacy `tmux-agent-work-ping*` names in older logs refer to the current `agent-terminal-*` path.
 
 ### Config (edit here, no hardcoding in logic)
 
@@ -61,7 +61,7 @@ recovery:
 - ❌ **NEVER** create, close, or merge PRs
 - ❌ **NEVER** run `systemctl` start/stop/enable/disable directly
 - ❌ **NEVER** run `gh pr create/close/merge`
-- ❌ **NEVER** run terminal dispatch scripts directly (`scripts/opencodectl manual-ping <repo>`, `scripts/tmux-agent-work-ping <repo>`, `scripts/tmux-prci-work-ping <repo>`)
+- ❌ **NEVER** run terminal dispatch scripts directly (`scripts/opencodectl manual-ping <repo>`, `scripts/opencodectl agent-ping <repo>`, `scripts/opencodectl prci-ping <repo>`, `scripts/manual-terminal-ping <repo>`, `scripts/agent-terminal-ping <repo>`, `scripts/prci-terminal-ping <repo>`)
 - ❌ **NEVER** send `Escape`, `/stop`, `C-c`, or any input to tmux panes
 - ❌ **NEVER** run `scripts/opencodectl cron enable/disable` directly
 - ❌ **NEVER** enable/disable/start/stop nixelo manual timer — Mikhail handles the auto-nixelo lifecycle manually. If nixelo timer is off, it's off on purpose. Do NOT re-enable it.

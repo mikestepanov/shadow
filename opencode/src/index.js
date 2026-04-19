@@ -3,8 +3,8 @@ import { editCronJob, formatCronList, listCronJobs, runCronJob, setCronEnabled }
 import { runAutoCycle } from "./auto-mode.js";
 import { enqueueLane, runQueue } from "./queue.js";
 import { runLane } from "./lane-run.js";
-import { listLaneKeys } from "./lanes.js";
-import { ensureManualSession, runAgentPing, runManualPing } from "./session.js";
+import { getLaneField, listLaneKeys } from "./lanes.js";
+import { ensureManualSession, runAgentPing, runManualPing, runPrciPing } from "./session.js";
 import { pollTelegramOnce } from "./telegram.js";
 import { sendPrompt } from "./send.js";
 import { safeRunCommand } from "./safe-command.js";
@@ -117,6 +117,13 @@ async function main() {
     process.exit(result.ok ? 0 : 1);
   }
 
+  if (command === "prci-ping") {
+    const [repo] = parsed.rest;
+    const result = await runPrciPing(repo || "");
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.exit(result.ok ? 0 : 1);
+  }
+
   if (command === "telegram-poll") {
     const result = await pollTelegramOnce();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -125,6 +132,18 @@ async function main() {
 
   if (command === "lanes") {
     process.stdout.write(`${JSON.stringify(listLaneKeys(), null, 2)}\n`);
+    process.exit(0);
+  }
+
+  if (command === "lane-field") {
+    const [mode, repo, field] = parsed.rest;
+    const value = getLaneField(mode || "", repo || "", field || "");
+    if (value === null) {
+      console.error(`unknown lane field: ${mode || ""}:${repo || ""}.${field || ""}`);
+      process.exit(2);
+    }
+
+    process.stdout.write(`${value}\n`);
     process.exit(0);
   }
 

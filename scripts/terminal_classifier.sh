@@ -10,7 +10,7 @@
 #   3. Content-change probe (2 snapshots, 2s apart, volatile lines stripped)
 #   4. Prompt cursor position (least reliable — cosmetic, can lie)
 #
-# Used by: tmux-manual-work-ping, pr-ci dispatch, watcher, heartbeat
+# Used by: manual-terminal-ping, pr-ci dispatch, watcher, heartbeat
 #
 # HARD RULES:
 #   - If process tree shows child runners → BUSY, no exceptions

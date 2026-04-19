@@ -7,19 +7,25 @@ if [[ $# -ne 1 ]]; then
 fi
 
 session="$1"
-case "$session" in
-  nixelo) workdir="$HOME/Desktop/nixelo" ;;
-  starthub) workdir="$HOME/Desktop/StartHub" ;;
-  *) echo "invalid session: $session" >&2; exit 2 ;;
-esac
-
-hour=$(TZ=America/Chicago date +%H)
-roles=(auditor refactor)
-idx=$((10#$hour % ${#roles[@]}))
-role="${roles[$idx]}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+OPENCODECTL="$SCRIPT_DIR/opencodectl"
 source "$SCRIPT_DIR/terminal_mode_guard.sh"
+
+if ! workdir="$($OPENCODECTL lane-field agent "$session" workdir 2>/dev/null)"; then
+  echo "invalid session: $session" >&2
+  exit 2
+fi
+
+if ! role="$($OPENCODECTL lane-field agent "$session" role 2>/dev/null)"; then
+  echo "missing agent role for session: $session" >&2
+  exit 2
+fi
+
+if ! msg="$($OPENCODECTL lane-field agent "$session" prompt 2>/dev/null)"; then
+  echo "missing agent prompt for session: $session" >&2
+  exit 2
+fi
 
 if ! terminal_send_preflight "$session" "$workdir"; then
   case "$TERMINAL_PREFLIGHT_REASON" in
@@ -43,18 +49,6 @@ if ! terminal_send_preflight "$session" "$workdir"; then
 fi
 
 target="$TERMINAL_PREFLIGHT_PANE"
-
-msg="$(cat <<EOF2
-MANDATORY ORDER (same branch only):
-1) Stay on your CURRENT branch. Do NOT create or switch branches.
-2) Work strictly within the ${role} facet defined in .agents/${role}.txt.
-3) Continue any in-progress work only if it clearly belongs to this ${role} facet.
-4) Go deep on this ${role} workstream. If a broader overhaul is needed to solve the ${role} problem correctly, do it. You may make multiple related fixes in this run as long as they all belong to the same ${role} facet.
-5) Keep the relevant TODOs and notes accurate as the work evolves.
-6) Run the relevant checks and commit at a clean, coherent checkpoint with a focused message.
-Hard rules: no destructive git commands; no new branches; no unrelated work; no background branch fan-out.
-EOF2
-)"
 
 send_tmux_text_enter "$target" "$msg" || {
   echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-ping role=${role} session=${session}"
