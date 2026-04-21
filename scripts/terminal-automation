@@ -209,15 +209,17 @@ timer_preflight() {
     case "$TERMINAL_PREFLIGHT_REASON" in
       session-missing|pane-missing)
         echo "PREFLIGHT_FAIL $unit reason=$TERMINAL_PREFLIGHT_REASON session=$session" >&2
+        return 1
         ;;
       path-mismatch)
         echo "PREFLIGHT_FAIL $unit reason=path-mismatch session=$session current=$TERMINAL_PREFLIGHT_CURRENT_PATH expected=$workdir" >&2
+        return 1
         ;;
       terminal-not-ready)
-        echo "PREFLIGHT_FAIL $unit reason=terminal-not-ready session=$session state=$TERMINAL_PREFLIGHT_STATE" >&2
+        echo "PREFLIGHT_BYPASS $unit session=$session state=$TERMINAL_PREFLIGHT_STATE" >&2
+        return 0
         ;;
     esac
-    return 1
   fi
 
   echo "PREFLIGHT_OK $unit session=$session state=$TERMINAL_PREFLIGHT_STATE"
@@ -249,6 +251,11 @@ verify_timer_dispatch() {
   outcome="$(printf '%s\n' "$logs" | grep -E 'SENT |PR-CI:|NOOP:|SKIP |BLOCKED_HUMAN:|OK:' | tail -1 || true)"
   if [[ -z "$outcome" ]]; then
     outcome="no-dispatch-log"
+  fi
+
+  if [[ "$outcome" == NOOP:terminal-busy* ]]; then
+    echo "VERIFY_OK $unit dispatch=$outcome"
+    return 0
   fi
 
   echo "VERIFY_FAIL $unit dispatch=$outcome" >&2

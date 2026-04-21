@@ -60,8 +60,10 @@ send_tmux_text_enter() {
   local target="$1"
   shift
   local txt="$*"
+  local buffer_name="opencode-send-$$-$RANDOM"
 
-  tmux send-keys -t "$target" -l -- "$txt"
+  tmux set-buffer -b "$buffer_name" -- "$txt"
+  tmux paste-buffer -d -b "$buffer_name" -t "$target"
   sleep 1
   tmux send-keys -t "$target" Enter
   sleep 0.12
