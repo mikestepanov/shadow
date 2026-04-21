@@ -3,9 +3,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-OPENCODECTL="$SCRIPT_DIR/opencodectl"
+OPENCODECTL="${OPENCODECTL:-$SCRIPT_DIR/opencodectl}"
+TIMERS_INSTALL="${TIMERS_INSTALL:-$SCRIPT_DIR/timers-install}"
+TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-$SCRIPT_DIR/terminal_mode_guard.sh}"
 
-source "$SCRIPT_DIR/terminal_mode_guard.sh"
+source "$TERMINAL_MODE_GUARD"
 
 # Terminal Automation guardrail utility
 # Enforces terminal automation checks across:
@@ -145,7 +147,7 @@ declare -A ROLLBACK_ENABLED_STATE=()
 
 ensure_timer_installed() {
   local unit="$1"
-  "$SCRIPT_DIR/timers-install" --install-only "${unit%.timer}" >/dev/null
+  "$TIMERS_INSTALL" --install-only "${unit%.timer}" >/dev/null
 }
 
 terminal_timer_session() {

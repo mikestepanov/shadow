@@ -8,7 +8,8 @@ TMUX_SESSION="nixelo"
 AUTO_GATE_FILE="$HOME/Desktop/shadow/auto-nixelo-enabled.json"
 MANUAL_TIMER="manual-terminal-nixelo.timer"
 PRCI_TIMER="prci-terminal-nixelo.timer"
-TIMERS_INSTALL="$SCRIPT_DIR/timers-install"
+TIMERS_INSTALL="${TIMERS_INSTALL:-$SCRIPT_DIR/timers-install}"
+IS_DONE_DONE_SCRIPT="${IS_DONE_DONE_SCRIPT:-$SCRIPT_DIR/is_done_done.sh}"
 TELEGRAM_TO="780599199"
 
 send_telegram() {
@@ -84,13 +85,6 @@ finish_post_merge_cycle() {
   local source_branch="$2"
   local prci_summary="$3"
 
-  local dirty_count
-  dirty_count="$(dirty_worktree_count)"
-  if [[ "$dirty_count" != "0" ]]; then
-    echo "WAIT:POST-MERGE:dirty-worktree branch=$source_branch changes=$dirty_count pr=$pr_number $prci_summary"
-    exit 0
-  fi
-
   run_or_error "ERROR:checkout-target-failed target=$TARGET_BRANCH" git checkout "$TARGET_BRANCH"
   run_or_error "ERROR:pull-target-failed target=$TARGET_BRANCH" git pull --ff-only
 
@@ -165,21 +159,16 @@ cd "$REPO_DIR"
 
 branch="$(git branch --show-current)"
 open_pr_number="$(gh pr list --head "$branch" --state open --json number -q '.[0].number' 2>/dev/null || echo "")"
-merged_pr_number="$(gh pr list --head "$branch" --state merged --json number -q '.[0].number' 2>/dev/null || echo "")"
 
 prci_active="$(timer_active "$PRCI_TIMER")"
 prci_enabled="$(timer_enabled "$PRCI_TIMER")"
-if [[ "$prci_active" != "active" && "$prci_enabled" != "enabled" ]]; then
-  if [[ "$branch" != "$TARGET_BRANCH" && -z "$open_pr_number" && -n "$merged_pr_number" ]]; then
-    finish_post_merge_cycle "$merged_pr_number" "$branch" "active=$prci_active enabled=$prci_enabled"
-  fi
-
+if [[ "$prci_active" != "active" || "$prci_enabled" != "enabled" ]]; then
   echo "SKIP:prci-off active=${prci_active} enabled=${prci_enabled}"
   exit 0
 fi
 
 set +e
-gate_output="$($SCRIPT_DIR/is_done_done.sh nixelo 2>&1)"
+gate_output="$($IS_DONE_DONE_SCRIPT nixelo 2>&1)"
 gate_exit=$?
 set -e
 
@@ -199,6 +188,12 @@ pr_number="$open_pr_number"
 if [[ -z "$pr_number" ]]; then
   echo "ERROR:no-open-pr-after-done-done"
   exit 1
+fi
+
+dirty_count="$(dirty_worktree_count)"
+if [[ "$dirty_count" != "0" ]]; then
+  echo "WAIT:POST-MERGE:dirty-worktree branch=$branch changes=$dirty_count pr=$pr_number active=$prci_active enabled=$prci_enabled"
+  exit 0
 fi
 
 systemctl --user disable --now "$PRCI_TIMER" >/dev/null 2>&1 || true
