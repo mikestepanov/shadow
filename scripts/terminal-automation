@@ -253,7 +253,7 @@ verify_timer_dispatch() {
     outcome="no-dispatch-log"
   fi
 
-  if [[ "$outcome" == NOOP:terminal-busy* ]]; then
+  if [[ "$outcome" == *NOOP:terminal-busy* ]]; then
     echo "VERIFY_OK $unit dispatch=$outcome"
     return 0
   fi
