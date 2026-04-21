@@ -99,6 +99,26 @@ set_git_status() {
   printf '%s' "$1" > "$FAKE_STATE_DIR/git_status"
 }
 
+set_tmux_pane_path() {
+  printf '%s\n' "$1" > "$FAKE_STATE_DIR/tmux_pane_path"
+}
+
+set_tmux_pane_content() {
+  printf '%s' "$1" > "$FAKE_STATE_DIR/tmux_pane_content"
+}
+
+set_auto_nixelo_enabled() {
+  local value="$1"
+  printf '{"enabled": %s}\n' "$value" > "$HOME/Desktop/shadow/auto-nixelo-enabled.json"
+}
+
+write_manual_todo() {
+  local relative_path="$1"
+  local content="$2"
+  mkdir -p "$(dirname "$HOME/Desktop/nixelo/$relative_path")"
+  printf '%s' "$content" > "$HOME/Desktop/nixelo/$relative_path"
+}
+
 write_stub_systemctl() {
   local path="$1"
   cat > "$path" <<'EOF'
@@ -242,15 +262,46 @@ state_dir="${FAKE_STATE_DIR:?}"
 
 printf 'tmux %s\n' "$*" >> "$log_file"
 
+pane_id_file="$state_dir/tmux_pane_id"
+pane_path_file="$state_dir/tmux_pane_path"
+pane_content_file="$state_dir/tmux_pane_content"
+
 command_name="${1:-}"
 case "$command_name" in
   has-session)
-    session="${3:-}"
+    session="${3:-${2:-}}"
+    session="${session#-t }"
+    session="${session#-t}"
     session_file="$state_dir/tmux_session_${session}"
     if [[ -f "$session_file" ]] && [[ $(cat "$session_file") == present ]]; then
       exit 0
     fi
     exit 1
+    ;;
+  list-panes)
+    if [[ -f "$pane_id_file" ]]; then
+      cat "$pane_id_file"
+    else
+      printf '%%1\n'
+    fi
+    exit 0
+    ;;
+  display-message)
+    if [[ -f "$pane_path_file" ]]; then
+      cat "$pane_path_file"
+    else
+      printf '%s\n' "$HOME/Desktop/nixelo"
+    fi
+    exit 0
+    ;;
+  capture-pane)
+    if [[ -f "$pane_content_file" ]]; then
+      cat "$pane_content_file"
+    fi
+    exit 0
+    ;;
+  set-buffer|paste-buffer|send-keys)
+    exit 0
     ;;
   clear-history)
     exit 0
@@ -419,6 +470,35 @@ JSON
   exit 0
 fi
 
+if [[ ${1:-} == lane-field ]]; then
+  lane="${2:-}"
+  session="${3:-}"
+  field="${4:-}"
+
+  case "$lane:$field" in
+    manual:workdir)
+      printf '%s\n' "${FAKE_MANUAL_WORKDIR:-$HOME/Desktop/$session}"
+      exit 0
+      ;;
+    manual:todoFile)
+      printf '%s\n' "${FAKE_MANUAL_TODO_FILE:-todos-hot/README.md}"
+      exit 0
+      ;;
+    manual:prompt)
+      printf '%s\n' "${FAKE_MANUAL_PROMPT:-Continue the next todo step.}"
+      exit 0
+      ;;
+    prci:workdir)
+      printf '%s\n' "${FAKE_PRCI_WORKDIR:-$HOME/Desktop/$session}"
+      exit 0
+      ;;
+    prci:dispatchScript)
+      printf '%s\n' "${FAKE_PRCI_DISPATCH_SCRIPT:?}"
+      exit 0
+      ;;
+  esac
+fi
+
 exit 0
 EOF
   chmod +x "$path"
@@ -523,6 +603,29 @@ EOF
   chmod +x "$path"
 }
 
+write_fake_prci_dispatch() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "${FAKE_PRCI_DISPATCH_OUTPUT:-checks green}"
+EOF
+  chmod +x "$path"
+}
+
+write_fake_terminal_classifier() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+classify_terminal_for_send() {
+  printf '%s\n' "${FAKE_CLASSIFIER_STATE:-IDLE:prompt}"
+}
+EOF
+  chmod +x "$path"
+}
+
 setup_fake_env() {
   local tmp_dir
   tmp_dir="$(mktemp -d)"
@@ -556,13 +659,27 @@ setup_fake_env() {
   export TEST_FAKE_TERMINAL_MODE_GUARD="$tmp_dir/fake-terminal-mode-guard.sh"
   export TEST_FAKE_TIMERS_INSTALL="$tmp_dir/fake-timers-install"
   export TEST_FAKE_IS_DONE_DONE="$tmp_dir/fake-is-done-done.sh"
+  export TEST_FAKE_PRCI_DISPATCH="$tmp_dir/fake-prci-dispatch.sh"
+  export TEST_FAKE_TERMINAL_CLASSIFIER="$tmp_dir/fake-terminal-classifier.sh"
 
   write_fake_opencodectl "$TEST_FAKE_OPENCODECTL"
   write_fake_terminal_mode_guard "$TEST_FAKE_TERMINAL_MODE_GUARD"
   write_fake_timers_install "$TEST_FAKE_TIMERS_INSTALL"
   write_fake_is_done_done "$TEST_FAKE_IS_DONE_DONE"
+  write_fake_prci_dispatch "$TEST_FAKE_PRCI_DISPATCH"
+  write_fake_terminal_classifier "$TEST_FAKE_TERMINAL_CLASSIFIER"
 
-  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_DATE_BRANCH FAKE_DATE_SINCE
+  set_tmux_pane_path "$HOME/Desktop/nixelo"
+  set_tmux_pane_content ''
+  printf '%%1\n' > "$FAKE_STATE_DIR/tmux_pane_id"
+
+  export FAKE_MANUAL_WORKDIR="$HOME/Desktop/nixelo"
+  export FAKE_MANUAL_TODO_FILE="todos-hot/README.md"
+  export FAKE_MANUAL_PROMPT="Continue the next todo step."
+  export FAKE_PRCI_WORKDIR="$HOME/Desktop/nixelo"
+  export FAKE_PRCI_DISPATCH_SCRIPT="$TEST_FAKE_PRCI_DISPATCH"
+
+  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT
 }
 
 run_terminal_automation() {
@@ -596,6 +713,50 @@ run_auto_cycle() {
     FAKE_DATE_BRANCH="${FAKE_DATE_BRANCH:-2026-04-21-01-12}" \
     FAKE_DATE_SINCE="${FAKE_DATE_SINCE:-2026-04-21 01:08:00}" \
     bash "$ROOT_DIR/scripts/auto_nixelo_cycle.sh"
+}
+
+run_manual_ping() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
+    TERMINAL_MODE_GUARD="$TEST_FAKE_TERMINAL_MODE_GUARD" \
+    AUTO_NIXELO_STATE="$HOME/Desktop/shadow/auto-nixelo-enabled.json" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
+    FAKE_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}" \
+    FAKE_MANUAL_WORKDIR="$FAKE_MANUAL_WORKDIR" \
+    FAKE_MANUAL_TODO_FILE="$FAKE_MANUAL_TODO_FILE" \
+    FAKE_MANUAL_PROMPT="$FAKE_MANUAL_PROMPT" \
+    bash "$ROOT_DIR/scripts/manual-terminal-ping" "$@"
+}
+
+run_prci_ping() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
+    TERMINAL_MODE_GUARD="$TEST_FAKE_TERMINAL_MODE_GUARD" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
+    FAKE_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}" \
+    FAKE_PRCI_WORKDIR="$FAKE_PRCI_WORKDIR" \
+    FAKE_PRCI_DISPATCH_SCRIPT="$FAKE_PRCI_DISPATCH_SCRIPT" \
+    FAKE_PRCI_DISPATCH_OUTPUT="${FAKE_PRCI_DISPATCH_OUTPUT:-checks green}" \
+    bash "$ROOT_DIR/scripts/prci-terminal-ping" "$@"
+}
+
+run_real_terminal_mode_guard() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_CLASSIFIER_STATE="${FAKE_CLASSIFIER_STATE:-IDLE:prompt}" \
+    bash -lc "$1"
 }
 
 run_plan_and_execute() {
@@ -641,6 +802,106 @@ test_terminal_automation_rejects_stuck_terminal() {
 
   assert_status "$RUN_STATUS" 1 "execute enable-manual stuck noop" || return 1
   assert_contains "$RUN_OUTPUT" 'VERIFY_FAIL manual-terminal-nixelo.timer' 'stuck noop rejected' || return 1
+}
+
+test_manual_ping_reports_busy_noop() {
+  setup_fake_env
+
+  FAKE_PREFLIGHT_RESULT="busy"
+  FAKE_PREFLIGHT_STATE="BUSY:content-changing"
+  export FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE
+
+  run_cmd run_manual_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "manual ping busy noop" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:content-changing' 'manual busy noop output' || return 1
+}
+
+test_manual_ping_skips_transition_when_auto_disabled() {
+  setup_fake_env
+
+  write_manual_todo 'todos-hot/README.md' $'- [x] done item\n'
+  set_tmux_pane_content ''
+  set_auto_nixelo_enabled false
+
+  run_cmd run_manual_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "manual ping auto disabled skip" || return 1
+  assert_contains "$RUN_OUTPUT" 'SKIP:auto-nixelo-off session=nixelo reason=todo-done but auto-nixelo disabled' 'manual skip when auto disabled' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'systemctl --user disable --now manual-terminal-nixelo.timer' 'manual timer unchanged when auto disabled' || return 1
+  assert_not_contains "$command_log" 'systemctl --user enable --now prci-terminal-nixelo.timer' 'prci timer unchanged when auto disabled' || return 1
+}
+
+test_manual_ping_transitions_when_todo_done() {
+  setup_fake_env
+
+  write_manual_todo 'todos-hot/README.md' $'- [x] done item\n'
+  set_tmux_pane_content ''
+  set_auto_nixelo_enabled true
+
+  run_cmd run_manual_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "manual ping todo done transition" || return 1
+  assert_contains "$RUN_OUTPUT" 'TRANSITION session=nixelo reason=todo-done (0 open items in todos-hot/README.md)' 'manual transition output' || return 1
+  assert_contains "$RUN_OUTPUT" 'enabled prci-terminal-nixelo.timer' 'manual transition enables prci timer' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'systemctl --user disable --now manual-terminal-nixelo.timer' 'manual timer disabled on transition' || return 1
+  assert_contains "$command_log" 'systemctl --user enable --now prci-terminal-nixelo.timer' 'prci timer enabled on transition' || return 1
+}
+
+test_prci_ping_reports_busy_noop() {
+  setup_fake_env
+
+  FAKE_PREFLIGHT_RESULT="busy"
+  FAKE_PREFLIGHT_STATE="BUSY:content-changing"
+  export FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci ping busy noop" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:content-changing' 'prci busy noop output' || return 1
+}
+
+test_prci_ping_runs_dispatch_script() {
+  setup_fake_env
+
+  FAKE_PRCI_DISPATCH_OUTPUT='checks green and comments resolved'
+  export FAKE_PRCI_DISPATCH_OUTPUT
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci ping dispatch" || return 1
+  assert_contains "$RUN_OUTPUT" 'PR-CI: checks green and comments resolved' 'prci dispatch output' || return 1
+}
+
+test_terminal_mode_guard_reports_path_mismatch() {
+  setup_fake_env
+
+  set_tmux_pane_path '/wrong/path'
+
+  run_cmd run_real_terminal_mode_guard "source '$ROOT_DIR/scripts/terminal_mode_guard.sh'; if terminal_send_preflight nixelo '$HOME/Desktop/nixelo'; then echo ok; else echo reason=\"\$TERMINAL_PREFLIGHT_REASON\" current=\"\$TERMINAL_PREFLIGHT_CURRENT_PATH\"; fi"
+
+  assert_status "$RUN_STATUS" 0 "guard path mismatch" || return 1
+  assert_contains "$RUN_OUTPUT" 'reason=path-mismatch current=/wrong/path' 'guard path mismatch output' || return 1
+}
+
+test_terminal_mode_guard_uses_paste_buffer_send_path() {
+  setup_fake_env
+
+  run_cmd run_real_terminal_mode_guard "source '$ROOT_DIR/scripts/terminal_mode_guard.sh'; send_tmux_text_enter '%1' 'hello world'"
+
+  assert_status "$RUN_STATUS" 0 "guard paste buffer send" || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux set-buffer -b' 'guard uses tmux set-buffer' || return 1
+  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'guard uses tmux paste-buffer' || return 1
+  assert_contains "$command_log" 'tmux send-keys -t %1 Enter' 'guard sends enter after paste' || return 1
 }
 
 test_auto_cycle_skips_when_prci_off() {
@@ -768,6 +1029,13 @@ run_test() {
 main() {
   run_test 'terminal automation accepts timestamp-prefixed busy noop' test_terminal_automation_accepts_timestamp_busy
   run_test 'terminal automation rejects stuck noop verification' test_terminal_automation_rejects_stuck_terminal
+  run_test 'manual ping reports busy noop' test_manual_ping_reports_busy_noop
+  run_test 'manual ping skips transition when auto disabled' test_manual_ping_skips_transition_when_auto_disabled
+  run_test 'manual ping transitions when todo is done' test_manual_ping_transitions_when_todo_done
+  run_test 'prci ping reports busy noop' test_prci_ping_reports_busy_noop
+  run_test 'prci ping runs dispatch script' test_prci_ping_runs_dispatch_script
+  run_test 'terminal mode guard reports path mismatch' test_terminal_mode_guard_reports_path_mismatch
+  run_test 'terminal mode guard uses paste-buffer send path' test_terminal_mode_guard_uses_paste_buffer_send_path
   run_test 'auto cycle skips when prci is off' test_auto_cycle_skips_when_prci_off
   run_test 'auto cycle requires attached open pr' test_auto_cycle_requires_open_pr
   run_test 'auto cycle waits for clean worktree before disabling prci' test_auto_cycle_waits_for_clean_worktree_before_disabling_prci

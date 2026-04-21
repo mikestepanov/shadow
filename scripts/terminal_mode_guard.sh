@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/terminal_classifier.sh"
+TERMINAL_CLASSIFIER="${TERMINAL_CLASSIFIER:-$SCRIPT_DIR/terminal_classifier.sh}"
+source "$TERMINAL_CLASSIFIER"
 
 TERMINAL_PREFLIGHT_PANE=""
 TERMINAL_PREFLIGHT_STATE=""

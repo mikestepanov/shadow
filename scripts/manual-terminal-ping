@@ -2,8 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AUTO_NIXELO_STATE="${SCRIPT_DIR}/auto-nixelo-enabled.json"
-OPENCODECTL="${SCRIPT_DIR}/scripts/opencodectl"
+AUTO_NIXELO_STATE="${AUTO_NIXELO_STATE:-${SCRIPT_DIR}/auto-nixelo-enabled.json}"
+OPENCODECTL="${OPENCODECTL:-${SCRIPT_DIR}/scripts/opencodectl}"
+TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-${SCRIPT_DIR}/scripts/terminal_mode_guard.sh}"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
@@ -40,7 +41,7 @@ if ! tmux has-session -t "$session" 2>/dev/null; then
   exit 0
 fi
 
-source "$SCRIPT_DIR/scripts/terminal_mode_guard.sh"
+source "$TERMINAL_MODE_GUARD"
 
 report_preflight_failure() {
   local note="${1:-}"

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OPENCODECTL="${SCRIPT_DIR}/scripts/opencodectl"
+OPENCODECTL="${OPENCODECTL:-${SCRIPT_DIR}/scripts/opencodectl}"
+TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-${SCRIPT_DIR}/scripts/terminal_mode_guard.sh}"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
@@ -20,7 +21,7 @@ if ! dispatch_script="$($OPENCODECTL lane-field prci "$session" dispatchScript 2
   exit 2
 fi
 
-source "$SCRIPT_DIR/scripts/terminal_mode_guard.sh"
+source "$TERMINAL_MODE_GUARD"
 
 if ! terminal_send_preflight "$session" "$workdir"; then
   case "$TERMINAL_PREFLIGHT_REASON" in
