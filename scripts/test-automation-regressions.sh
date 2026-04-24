@@ -107,6 +107,26 @@ set_tmux_pane_content() {
   printf '%s' "$1" > "$FAKE_STATE_DIR/tmux_pane_content"
 }
 
+set_tmux_pane_command() {
+  printf '%s\n' "$1" > "$FAKE_STATE_DIR/tmux_pane_command"
+}
+
+set_tmux_pane_pid() {
+  printf '%s\n' "$1" > "$FAKE_STATE_DIR/tmux_pane_pid"
+}
+
+set_tmux_cursor_y() {
+  printf '%s\n' "$1" > "$FAKE_STATE_DIR/tmux_cursor_y"
+}
+
+set_ps_sid() {
+  printf '%s\n' "$1" > "$FAKE_STATE_DIR/ps_sid"
+}
+
+set_ps_tree() {
+  printf '%s' "$1" > "$FAKE_STATE_DIR/ps_tree"
+}
+
 set_auto_nixelo_enabled() {
   local value="$1"
   printf '{"enabled": %s}\n' "$value" > "$HOME/Desktop/shadow/auto-nixelo-enabled.json"
@@ -265,6 +285,9 @@ printf 'tmux %s\n' "$*" >> "$log_file"
 pane_id_file="$state_dir/tmux_pane_id"
 pane_path_file="$state_dir/tmux_pane_path"
 pane_content_file="$state_dir/tmux_pane_content"
+pane_cmd_file="$state_dir/tmux_pane_command"
+pane_pid_file="$state_dir/tmux_pane_pid"
+cursor_y_file="$state_dir/tmux_cursor_y"
 
 command_name="${1:-}"
 case "$command_name" in
@@ -287,11 +310,39 @@ case "$command_name" in
     exit 0
     ;;
   display-message)
-    if [[ -f "$pane_path_file" ]]; then
-      cat "$pane_path_file"
-    else
-      printf '%s\n' "$HOME/Desktop/nixelo"
-    fi
+    case "${*: -1}" in
+      '#{pane_current_path}')
+        if [[ -f "$pane_path_file" ]]; then
+          cat "$pane_path_file"
+        else
+          printf '%s\n' "$HOME/Desktop/nixelo"
+        fi
+        ;;
+      '#{pane_current_command}')
+        if [[ -f "$pane_cmd_file" ]]; then
+          cat "$pane_cmd_file"
+        else
+          printf 'opencode\n'
+        fi
+        ;;
+      '#{pane_pid}')
+        if [[ -f "$pane_pid_file" ]]; then
+          cat "$pane_pid_file"
+        else
+          printf '4242\n'
+        fi
+        ;;
+      '#{cursor_y}')
+        if [[ -f "$cursor_y_file" ]]; then
+          cat "$cursor_y_file"
+        else
+          printf '25\n'
+        fi
+        ;;
+      *)
+        printf '\n'
+        ;;
+    esac
     exit 0
     ;;
   capture-pane)
@@ -323,6 +374,22 @@ set -euo pipefail
 log_file="${FAKE_LOG:?}"
 printf 'gh %s\n' "$*" >> "$log_file"
 
+arg_value() {
+  local needle="$1"
+  shift
+  local args=("$@")
+  local index
+  for ((index = 0; index < ${#args[@]}; index++)); do
+    if [[ "${args[$index]}" == "$needle" ]]; then
+      if (( index + 1 < ${#args[@]} )); then
+        printf '%s\n' "${args[$((index + 1))]}"
+      fi
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [[ ${1:-} == pr && ${2:-} == list ]]; then
   state="open"
   while (($#)); do
@@ -343,12 +410,89 @@ if [[ ${1:-} == pr && ${2:-} == list ]]; then
   exit 0
 fi
 
+if [[ ${1:-} == pr && ${2:-} == checks ]]; then
+  printf '%s\n' "${FAKE_GH_PR_CHECKS:-}"
+  exit 0
+fi
+
 if [[ ${1:-} == pr && ${2:-} == merge ]]; then
   exit "${FAKE_GH_MERGE_EXIT:-0}"
 fi
 
 if [[ ${1:-} == pr && ${2:-} == view ]]; then
-  printf '%s\n' "${FAKE_GH_PR_STATE:-MERGED}"
+  json_field="$(arg_value --json "$@" || true)"
+  query="$(arg_value -q "$@" || arg_value --jq "$@" || true)"
+
+  case "$json_field" in
+    reviewDecision)
+      printf '%s\n' "${FAKE_GH_REVIEW_DECISION:-NONE}"
+      ;;
+    state)
+      printf '%s\n' "${FAKE_GH_PR_STATE:-MERGED}"
+      ;;
+    headRefOid)
+      printf '%s\n' "${FAKE_GH_HEAD_SHA:-deadbeef}"
+      ;;
+    reviews)
+      printf '%s\n' "${FAKE_GH_CHANGES_REQUESTED_COUNT:-0}"
+      ;;
+    statusCheckRollup)
+      if [[ "$query" == *'FAILURE'* || "$query" == *'FAILED'* || "$query" == *'ACTION_REQUIRED'* ]]; then
+        printf '%s\n' "${FAKE_GH_STATUSCHECK_FAILING_COUNT:-0}"
+      else
+        printf '%s\n' "${FAKE_GH_STATUSCHECK_PENDING_COUNT:-0}"
+      fi
+      ;;
+    *)
+      printf '%s\n' "${FAKE_GH_PR_STATE:-MERGED}"
+      ;;
+  esac
+  exit 0
+fi
+
+if [[ ${1:-} == repo && ${2:-} == view ]]; then
+  printf '%s\n' "${FAKE_GH_REPO_SLUG:-NixeloApp/nixelo}"
+  exit 0
+fi
+
+if [[ ${1:-} == api && ${2:-} == graphql ]]; then
+  printf '%s\n' "${FAKE_GH_GRAPHQL_RESULT:-0}"
+  exit 0
+fi
+
+if [[ ${1:-} == api ]]; then
+  endpoint="${2:-}"
+  query="$(arg_value --jq "$@" || arg_value -q "$@" || true)"
+
+  if [[ "$endpoint" == *'/check-suites'* ]]; then
+    if [[ "$query" == *'FAILURE'* || "$query" == *'FAILED'* || "$query" == *'ACTION_REQUIRED'* || "$query" == *'STARTUP_FAILURE'* ]]; then
+      printf '%s\n' "${FAKE_GH_CHECK_SUITES_FAILING_COUNT:-0}"
+    else
+      printf '%s\n' "${FAKE_GH_CHECK_SUITES_PENDING_COUNT:-0}"
+    fi
+    exit 0
+  fi
+
+  if [[ "$endpoint" == *'/status'* ]]; then
+    if [[ "$query" == *'PENDING'* ]]; then
+      printf '%s\n' "${FAKE_GH_COMMIT_STATUS_PENDING_COUNT:-0}"
+    else
+      printf '%s\n' "${FAKE_GH_COMMIT_STATUS_FAILING_COUNT:-0}"
+    fi
+    exit 0
+  fi
+
+  printf '%s\n' "${FAKE_GH_API_RESULT:-0}"
+  exit 0
+fi
+
+if [[ ${1:-} == run && ${2:-} == list ]]; then
+  printf '%s\n' "${FAKE_GH_RUN_ID:-}"
+  exit 0
+fi
+
+if [[ ${1:-} == run && ${2:-} == view ]]; then
+  printf '%s\n' "${FAKE_GH_RUN_LOG:-}"
   exit 0
 fi
 
@@ -391,6 +535,10 @@ case "${1:-}" in
       exit 0
     fi
     ;;
+  rev-list)
+    printf '%s\n' "${FAKE_GIT_AHEAD_COUNT:-0}"
+    exit 0
+    ;;
   show-ref)
     if [[ -f "$state_dir/git_show_ref_exists" ]]; then
       exit 0
@@ -408,7 +556,43 @@ case "${1:-}" in
   pull)
     exit 0
     ;;
+  push)
+    exit "${FAKE_GIT_PUSH_EXIT:-0}"
+    ;;
+  log)
+    printf '%s\n' "${FAKE_GIT_LOG_OUTPUT:-abcdef1}"
+    exit 0
+    ;;
 esac
+
+exit 0
+EOF
+  chmod +x "$path"
+}
+
+write_stub_ps() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${FAKE_STATE_DIR:?}"
+
+if [[ ${1:-} == -o && ${2:-} == sid= && ${3:-} == -p ]]; then
+  if [[ -f "$state_dir/ps_sid" ]]; then
+    cat "$state_dir/ps_sid"
+  else
+    printf '4242\n'
+  fi
+  exit 0
+fi
+
+if [[ ${1:-} == -o && ${2:-} == stat=,comm=,args= && ${3:-} == --forest && ${4:-} == -g ]]; then
+  if [[ -f "$state_dir/ps_tree" ]]; then
+    cat "$state_dir/ps_tree"
+  fi
+  exit 0
+fi
 
 exit 0
 EOF
@@ -488,6 +672,18 @@ if [[ ${1:-} == lane-field ]]; then
       printf '%s\n' "${FAKE_MANUAL_PROMPT:-Continue the next todo step.}"
       exit 0
       ;;
+    agent:workdir)
+      printf '%s\n' "${FAKE_AGENT_WORKDIR:-$HOME/Desktop/$session}"
+      exit 0
+      ;;
+    agent:role)
+      printf '%s\n' "${FAKE_AGENT_ROLE:-implementer}"
+      exit 0
+      ;;
+    agent:prompt)
+      printf '%s\n' "${FAKE_AGENT_PROMPT:-Continue the assigned work.}"
+      exit 0
+      ;;
     prci:workdir)
       printf '%s\n' "${FAKE_PRCI_WORKDIR:-$HOME/Desktop/$session}"
       exit 0
@@ -516,26 +712,68 @@ TERMINAL_PREFLIGHT_REASON=""
 TERMINAL_PREFLIGHT_CURRENT_PATH=""
 TERMINAL_PREFLIGHT_EXPECTED_PATH=""
 
+next_preflight_call_number() {
+  local count_file="${FAKE_STATE_DIR:?}/fake_preflight_call_count"
+  local count="0"
+  if [[ -f "$count_file" ]]; then
+    count="$(cat "$count_file")"
+  fi
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$count_file"
+  printf '%s\n' "$count"
+}
+
+sequence_value() {
+  local raw="$1"
+  local index="$2"
+  local default_value="$3"
+  local items=()
+
+  if [[ -z "$raw" ]]; then
+    printf '%s\n' "$default_value"
+    return
+  fi
+
+  IFS=',' read -r -a items <<< "$raw"
+  if (( ${#items[@]} == 0 )); then
+    printf '%s\n' "$default_value"
+    return
+  fi
+
+  if (( index <= ${#items[@]} )); then
+    printf '%s\n' "${items[$((index - 1))]}"
+    return
+  fi
+
+  printf '%s\n' "${items[$(( ${#items[@]} - 1 ))]}"
+}
+
 terminal_send_preflight() {
   local session="$1"
   local expected_path="$2"
+  local preflight_call result state
   TERMINAL_PREFLIGHT_PANE="%1"
   TERMINAL_PREFLIGHT_CURRENT_PATH="$expected_path"
   TERMINAL_PREFLIGHT_EXPECTED_PATH="$expected_path"
+  preflight_call="$(next_preflight_call_number)"
+  result="$(sequence_value "${FAKE_PREFLIGHT_RESULT_SEQUENCE:-}" "$preflight_call" "${FAKE_PREFLIGHT_RESULT:-ok}")"
 
-  case "${FAKE_PREFLIGHT_RESULT:-ok}" in
+  case "$result" in
     ok)
-      TERMINAL_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}"
+      state="$(sequence_value "${FAKE_PREFLIGHT_STATE_SEQUENCE:-}" "$preflight_call" "${FAKE_PREFLIGHT_STATE:-IDLE:prompt}")"
+      TERMINAL_PREFLIGHT_STATE="$state"
       TERMINAL_PREFLIGHT_REASON="ok"
       return 0
       ;;
     busy)
-      TERMINAL_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-BUSY:content-changing}"
+      state="$(sequence_value "${FAKE_PREFLIGHT_STATE_SEQUENCE:-}" "$preflight_call" "${FAKE_PREFLIGHT_STATE:-BUSY:content-changing}")"
+      TERMINAL_PREFLIGHT_STATE="$state"
       TERMINAL_PREFLIGHT_REASON="terminal-not-ready"
       return 1
       ;;
     stuck)
-      TERMINAL_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-STUCK:no-prompt}"
+      state="$(sequence_value "${FAKE_PREFLIGHT_STATE_SEQUENCE:-}" "$preflight_call" "${FAKE_PREFLIGHT_STATE:-STUCK:no-prompt}")"
+      TERMINAL_PREFLIGHT_STATE="$state"
       TERMINAL_PREFLIGHT_REASON="terminal-not-ready"
       return 1
       ;;
@@ -555,11 +793,36 @@ terminal_send_preflight() {
 }
 
 send_tmux_text_enter() {
+  printf 'fake-send %s\n' "$*" >> "${FAKE_LOG:?}"
   return 0
 }
 
 submit_tmux_enter() {
+  printf 'fake-enter %s\n' "$*" >> "${FAKE_LOG:?}"
   return 0
+}
+
+repo_dirty_worktree_count() {
+  local workdir="$1"
+  local status
+  status="$(cd "$workdir" 2>/dev/null && git status --porcelain 2>/dev/null || true)"
+  if [[ -z "$status" ]]; then
+    echo 0
+    return 0
+  fi
+
+  printf '%s\n' "$status" | wc -l | tr -d '[:space:]'
+}
+
+dirty_worktree_recovery_prompt() {
+  local mode="$1"
+  local session="$2"
+  local workdir="$3"
+  local dirty_count="$4"
+  local branch
+
+  branch="$(cd "$workdir" 2>/dev/null && git branch --show-current 2>/dev/null || echo "current-branch")"
+  printf '%s' "The ${mode} automation for ${session} is blocked by ${dirty_count} uncommitted changes on branch ${branch}."
 }
 EOF
   chmod +x "$path"
@@ -638,19 +901,21 @@ setup_fake_env() {
   export REAL_DATE_BIN="$(PATH="$PATH_ORIG" command -v date)"
   export PATH="$tmp_dir/bin:$PATH_ORIG"
 
-  mkdir -p "$HOME/Desktop/nixelo" "$HOME/Desktop/shadow" "$HOME/.openclaw/workspace/.terminal-automation-plans" "$tmp_dir/bin" "$FAKE_STATE_DIR"
+  mkdir -p "$HOME/Desktop/nixelo" "$HOME/Desktop/StartHub" "$HOME/Desktop/shadow" "$HOME/.openclaw/workspace/.terminal-automation-plans" "$tmp_dir/bin" "$FAKE_STATE_DIR"
   : > "$FAKE_LOG"
 
   printf '{"enabled": true}\n' > "$HOME/Desktop/shadow/auto-nixelo-enabled.json"
   printf 'fixes\n' > "$FAKE_STATE_DIR/git_branch"
   : > "$FAKE_STATE_DIR/git_status"
   printf 'present\n' > "$FAKE_STATE_DIR/tmux_session_nixelo"
+  printf 'present\n' > "$FAKE_STATE_DIR/tmux_session_starthub"
 
   write_stub_systemctl "$tmp_dir/bin/systemctl"
   write_stub_journalctl "$tmp_dir/bin/journalctl"
   write_stub_tmux "$tmp_dir/bin/tmux"
   write_stub_gh "$tmp_dir/bin/gh"
   write_stub_git "$tmp_dir/bin/git"
+  write_stub_ps "$tmp_dir/bin/ps"
   write_stub_date "$tmp_dir/bin/date"
   write_stub_sleep "$tmp_dir/bin/sleep"
   write_stub_curl "$tmp_dir/bin/curl"
@@ -671,15 +936,31 @@ setup_fake_env() {
 
   set_tmux_pane_path "$HOME/Desktop/nixelo"
   set_tmux_pane_content ''
+  set_tmux_pane_command 'opencode'
+  set_tmux_pane_pid '4242'
+  set_tmux_cursor_y '25'
+  set_ps_sid '4242'
+  set_ps_tree ''
   printf '%%1\n' > "$FAKE_STATE_DIR/tmux_pane_id"
 
   export FAKE_MANUAL_WORKDIR="$HOME/Desktop/nixelo"
   export FAKE_MANUAL_TODO_FILE="todos-hot/README.md"
   export FAKE_MANUAL_PROMPT="Continue the next todo step."
+  export FAKE_AGENT_WORKDIR="$HOME/Desktop/nixelo"
+  export FAKE_AGENT_ROLE="implementer"
+  export FAKE_AGENT_PROMPT="Continue the assigned work."
   export FAKE_PRCI_WORKDIR="$HOME/Desktop/nixelo"
   export FAKE_PRCI_DISPATCH_SCRIPT="$TEST_FAKE_PRCI_DISPATCH"
 
-  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT
+  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT USE_REAL_TERMINAL_MODE_GUARD FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
+}
+
+terminal_mode_guard_for_test() {
+  if [[ "${USE_REAL_TERMINAL_MODE_GUARD:-0}" == "1" ]]; then
+    printf '%s\n' "$ROOT_DIR/scripts/terminal_mode_guard.sh"
+  else
+    printf '%s\n' "$TEST_FAKE_TERMINAL_MODE_GUARD"
+  fi
 }
 
 run_terminal_automation() {
@@ -687,7 +968,8 @@ run_terminal_automation() {
     HOME="$HOME" \
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
-    TERMINAL_MODE_GUARD="$TEST_FAKE_TERMINAL_MODE_GUARD" \
+    TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
     TIMERS_INSTALL="$TEST_FAKE_TIMERS_INSTALL" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
@@ -715,12 +997,61 @@ run_auto_cycle() {
     bash "$ROOT_DIR/scripts/auto_nixelo_cycle.sh"
 }
 
+run_auto_cycle_with_real_done_done() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    TIMERS_INSTALL="$TEST_FAKE_TIMERS_INSTALL" \
+    IS_DONE_DONE_SCRIPT="$ROOT_DIR/scripts/is_done_done.sh" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_GH_OPEN_PR="${FAKE_GH_OPEN_PR:-}" \
+    FAKE_GH_MERGED_PR="${FAKE_GH_MERGED_PR:-}" \
+    FAKE_GH_MERGE_EXIT="${FAKE_GH_MERGE_EXIT:-0}" \
+    FAKE_GH_PR_STATE="${FAKE_GH_PR_STATE:-MERGED}" \
+    FAKE_GH_HEAD_SHA="${FAKE_GH_HEAD_SHA:-deadbeef}" \
+    FAKE_GH_CHANGES_REQUESTED_COUNT="${FAKE_GH_CHANGES_REQUESTED_COUNT:-0}" \
+    FAKE_GH_STATUSCHECK_FAILING_COUNT="${FAKE_GH_STATUSCHECK_FAILING_COUNT:-0}" \
+    FAKE_GH_STATUSCHECK_PENDING_COUNT="${FAKE_GH_STATUSCHECK_PENDING_COUNT:-0}" \
+    FAKE_GH_CHECK_SUITES_FAILING_COUNT="${FAKE_GH_CHECK_SUITES_FAILING_COUNT:-0}" \
+    FAKE_GH_CHECK_SUITES_PENDING_COUNT="${FAKE_GH_CHECK_SUITES_PENDING_COUNT:-0}" \
+    FAKE_GH_COMMIT_STATUS_FAILING_COUNT="${FAKE_GH_COMMIT_STATUS_FAILING_COUNT:-0}" \
+    FAKE_GH_COMMIT_STATUS_PENDING_COUNT="${FAKE_GH_COMMIT_STATUS_PENDING_COUNT:-0}" \
+    FAKE_GH_GRAPHQL_RESULT="${FAKE_GH_GRAPHQL_RESULT:-0}" \
+    FAKE_GIT_AHEAD_COUNT="${FAKE_GIT_AHEAD_COUNT:-0}" \
+    FAKE_DATE_BRANCH="${FAKE_DATE_BRANCH:-2026-04-21-01-12}" \
+    FAKE_DATE_SINCE="${FAKE_DATE_SINCE:-2026-04-21 01:08:00}" \
+    bash "$ROOT_DIR/scripts/auto_nixelo_cycle.sh"
+}
+
+run_real_is_done_done() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_GH_OPEN_PR="${FAKE_GH_OPEN_PR:-}" \
+    FAKE_GH_PR_STATE="${FAKE_GH_PR_STATE:-OPEN}" \
+    FAKE_GH_HEAD_SHA="${FAKE_GH_HEAD_SHA:-deadbeef}" \
+    FAKE_GH_CHANGES_REQUESTED_COUNT="${FAKE_GH_CHANGES_REQUESTED_COUNT:-0}" \
+    FAKE_GH_STATUSCHECK_FAILING_COUNT="${FAKE_GH_STATUSCHECK_FAILING_COUNT:-0}" \
+    FAKE_GH_STATUSCHECK_PENDING_COUNT="${FAKE_GH_STATUSCHECK_PENDING_COUNT:-0}" \
+    FAKE_GH_CHECK_SUITES_FAILING_COUNT="${FAKE_GH_CHECK_SUITES_FAILING_COUNT:-0}" \
+    FAKE_GH_CHECK_SUITES_PENDING_COUNT="${FAKE_GH_CHECK_SUITES_PENDING_COUNT:-0}" \
+    FAKE_GH_COMMIT_STATUS_FAILING_COUNT="${FAKE_GH_COMMIT_STATUS_FAILING_COUNT:-0}" \
+    FAKE_GH_COMMIT_STATUS_PENDING_COUNT="${FAKE_GH_COMMIT_STATUS_PENDING_COUNT:-0}" \
+    FAKE_GH_GRAPHQL_RESULT="${FAKE_GH_GRAPHQL_RESULT:-0}" \
+    FAKE_GIT_AHEAD_COUNT="${FAKE_GIT_AHEAD_COUNT:-0}" \
+    bash "$ROOT_DIR/scripts/is_done_done.sh" "$@"
+}
+
 run_manual_ping() {
   env \
     HOME="$HOME" \
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
-    TERMINAL_MODE_GUARD="$TEST_FAKE_TERMINAL_MODE_GUARD" \
+    TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
     AUTO_NIXELO_STATE="$HOME/Desktop/shadow/auto-nixelo-enabled.json" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
@@ -732,12 +1063,30 @@ run_manual_ping() {
     bash "$ROOT_DIR/scripts/manual-terminal-ping" "$@"
 }
 
+run_agent_ping() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
+    TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
+    FAKE_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}" \
+    FAKE_AGENT_WORKDIR="$FAKE_AGENT_WORKDIR" \
+    FAKE_AGENT_ROLE="$FAKE_AGENT_ROLE" \
+    FAKE_AGENT_PROMPT="$FAKE_AGENT_PROMPT" \
+    bash "$ROOT_DIR/scripts/agent-terminal-ping" "$@"
+}
+
 run_prci_ping() {
   env \
     HOME="$HOME" \
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
-    TERMINAL_MODE_GUARD="$TEST_FAKE_TERMINAL_MODE_GUARD" \
+    TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
@@ -748,6 +1097,57 @@ run_prci_ping() {
     bash "$ROOT_DIR/scripts/prci-terminal-ping" "$@"
 }
 
+run_prci_dispatch_nixelo() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
+    TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
+    FAKE_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}" \
+    FAKE_GH_OPEN_PR="${FAKE_GH_OPEN_PR:-}" \
+    FAKE_GH_MERGED_PR="${FAKE_GH_MERGED_PR:-}" \
+    FAKE_GH_PR_STATE="${FAKE_GH_PR_STATE:-OPEN}" \
+    FAKE_GH_PR_CHECKS="${FAKE_GH_PR_CHECKS:-}" \
+    FAKE_GH_REVIEW_DECISION="${FAKE_GH_REVIEW_DECISION:-NONE}" \
+    FAKE_GH_REPO_SLUG="${FAKE_GH_REPO_SLUG:-NixeloApp/nixelo}" \
+    FAKE_GH_GRAPHQL_RESULT="${FAKE_GH_GRAPHQL_RESULT:-0}" \
+    FAKE_GH_API_RESULT="${FAKE_GH_API_RESULT:-0}" \
+    FAKE_GH_RUN_ID="${FAKE_GH_RUN_ID:-}" \
+    FAKE_GH_RUN_LOG="${FAKE_GH_RUN_LOG:-}" \
+    FAKE_GIT_AHEAD_COUNT="${FAKE_GIT_AHEAD_COUNT:-0}" \
+    FAKE_GIT_PUSH_EXIT="${FAKE_GIT_PUSH_EXIT:-0}" \
+    FAKE_GIT_LOG_OUTPUT="${FAKE_GIT_LOG_OUTPUT:-abcdef1}" \
+    bash "$ROOT_DIR/scripts/pr_ci_nixelo_dispatch.sh"
+}
+
+run_prci_dispatch_starthub() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
+    TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
+    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
+    FAKE_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}" \
+    FAKE_GH_OPEN_PR="${FAKE_GH_OPEN_PR:-}" \
+    FAKE_GH_PR_STATE="${FAKE_GH_PR_STATE:-OPEN}" \
+    FAKE_GH_PR_CHECKS="${FAKE_GH_PR_CHECKS:-}" \
+    FAKE_GH_REVIEW_DECISION="${FAKE_GH_REVIEW_DECISION:-NONE}" \
+    FAKE_GH_REPO_SLUG="${FAKE_GH_REPO_SLUG:-StartHub-Academy/StartHub}" \
+    FAKE_GH_GRAPHQL_RESULT="${FAKE_GH_GRAPHQL_RESULT:-0}" \
+    FAKE_GH_API_RESULT="${FAKE_GH_API_RESULT:-0}" \
+    FAKE_GIT_AHEAD_COUNT="${FAKE_GIT_AHEAD_COUNT:-0}" \
+    FAKE_GIT_PUSH_EXIT="${FAKE_GIT_PUSH_EXIT:-0}" \
+    FAKE_GIT_LOG_OUTPUT="${FAKE_GIT_LOG_OUTPUT:-abcdef1}" \
+    bash "$ROOT_DIR/scripts/pr_ci_starthub_dispatch.sh"
+}
+
 run_real_terminal_mode_guard() {
   env \
     HOME="$HOME" \
@@ -756,6 +1156,16 @@ run_real_terminal_mode_guard() {
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_CLASSIFIER_STATE="${FAKE_CLASSIFIER_STATE:-IDLE:prompt}" \
+    bash -lc "$1"
+}
+
+run_real_terminal_classifier() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    CONTENT_PROBE_DELAY="${CONTENT_PROBE_DELAY:-0}" \
     bash -lc "$1"
 }
 
@@ -817,6 +1227,42 @@ test_manual_ping_reports_busy_noop() {
   assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:content-changing' 'manual busy noop output' || return 1
 }
 
+test_manual_ping_prioritizes_dirty_worktree_recovery() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  write_manual_todo 'todos-hot/README.md' $'- [ ] open item\n'
+  set_git_status $' M src/app.tsx\n M src/test.ts'
+
+  run_cmd run_manual_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "manual ping dirty worktree" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual session=nixelo mode=dirty-worktree changes=2' 'manual dirty recovery output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux set-buffer -b' 'manual dirty recovery sent prompt' || return 1
+}
+
+test_manual_ping_rechecks_before_dirty_worktree_send() {
+  setup_fake_env
+
+  set_git_status $' M src/app.tsx\n'
+  FAKE_PREFLIGHT_RESULT_SEQUENCE='ok,busy'
+  FAKE_PREFLIGHT_STATE_SEQUENCE='IDLE:prompt,BUSY:queued'
+  export FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE
+
+  run_cmd run_manual_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "manual ping dirty recheck" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:queued note=final-recheck' 'manual dirty recheck output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-send %1' 'manual dirty recheck prevented send' || return 1
+}
+
 test_manual_ping_skips_transition_when_auto_disabled() {
   setup_fake_env
 
@@ -854,6 +1300,40 @@ test_manual_ping_transitions_when_todo_done() {
   assert_contains "$command_log" 'systemctl --user enable --now prci-terminal-nixelo.timer' 'prci timer enabled on transition' || return 1
 }
 
+test_agent_ping_prioritizes_dirty_worktree_recovery() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  set_git_status $' M src/app.tsx\n'
+
+  run_cmd run_agent_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "agent ping dirty worktree" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT role=implementer session=nixelo mode=dirty-worktree changes=1' 'agent dirty recovery output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux set-buffer -b' 'agent dirty recovery sent prompt' || return 1
+}
+
+test_agent_ping_rechecks_before_send() {
+  setup_fake_env
+
+  FAKE_PREFLIGHT_RESULT_SEQUENCE='ok,busy'
+  FAKE_PREFLIGHT_STATE_SEQUENCE='IDLE:prompt,BUSY:queued'
+  export FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE
+
+  run_cmd run_agent_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "agent ping final recheck" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy role=implementer session=nixelo state=BUSY:queued note=final-recheck' 'agent final recheck output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-send %1' 'agent final recheck prevented send' || return 1
+}
+
 test_prci_ping_reports_busy_noop() {
   setup_fake_env
 
@@ -865,6 +1345,43 @@ test_prci_ping_reports_busy_noop() {
 
   assert_status "$RUN_STATUS" 0 "prci ping busy noop" || return 1
   assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:content-changing' 'prci busy noop output' || return 1
+}
+
+test_prci_ping_prioritizes_dirty_worktree_recovery() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  set_git_status $' M src/app.tsx\n M src/test.ts\n M src/third.ts'
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci ping dirty worktree" || return 1
+  assert_contains "$RUN_OUTPUT" 'PR-CI: SENT dirty-worktree session=nixelo changes=3' 'prci dirty recovery output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-prci-dispatch.sh' 'prci dispatch skipped while dirty' || return 1
+  assert_contains "$command_log" 'tmux set-buffer -b' 'prci dirty recovery sent prompt' || return 1
+}
+
+test_prci_ping_rechecks_before_dirty_worktree_send() {
+  setup_fake_env
+
+  set_git_status $' M src/app.tsx\n'
+  FAKE_PREFLIGHT_RESULT_SEQUENCE='ok,busy'
+  FAKE_PREFLIGHT_STATE_SEQUENCE='IDLE:prompt,BUSY:queued'
+  export FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci ping dirty recheck" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:queued note=final-recheck' 'prci dirty recheck output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-send %1' 'prci dirty recheck prevented send' || return 1
+  assert_not_contains "$command_log" 'fake-prci-dispatch.sh' 'prci dirty recheck skipped dispatch' || return 1
 }
 
 test_prci_ping_runs_dispatch_script() {
@@ -879,6 +1396,193 @@ test_prci_ping_runs_dispatch_script() {
   assert_contains "$RUN_OUTPUT" 'PR-CI: checks green and comments resolved' 'prci dispatch output' || return 1
 }
 
+test_prci_dispatch_pushes_ahead_branch_first() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='51'
+  FAKE_GIT_AHEAD_COUNT='2'
+  export FAKE_GH_OPEN_PR FAKE_GIT_AHEAD_COUNT
+
+  run_cmd run_prci_dispatch_nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci dispatch pushes ahead branch" || return 1
+  assert_contains "$RUN_OUTPUT" 'PUSHED:branch=fixes ahead=2' 'push output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'git push origin fixes' 'push command executed' || return 1
+}
+
+test_prci_dispatch_fixes_review_issues_even_when_ci_green() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='51'
+  FAKE_GH_PR_CHECKS=$'CodeRabbit pass\nUnit pass'
+  FAKE_GH_REVIEW_DECISION='CHANGES_REQUESTED'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION
+
+  run_cmd run_prci_dispatch_nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci dispatch green review issues" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: CI green but review issues found' 'green review issues output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'fake-send %1 /fix-pr-comments' 'fix pr comments dispatched' || return 1
+}
+
+test_starthub_prci_dispatch_opens_pr_when_missing() {
+  setup_fake_env
+
+  set_git_branch 'feature-shells'
+  FAKE_GH_OPEN_PR=''
+  export FAKE_GH_OPEN_PR
+
+  run_cmd run_prci_dispatch_starthub
+
+  assert_status "$RUN_STATUS" 0 "starthub prci dispatch no pr" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: no open PR, dispatched /pr' 'starthub /pr output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'fake-send %1 /pr' 'starthub /pr dispatched' || return 1
+}
+
+test_starthub_prci_dispatch_green_noops_without_review_issues() {
+  setup_fake_env
+
+  set_git_branch 'feature-shells'
+  FAKE_GH_OPEN_PR='77'
+  FAKE_GH_PR_CHECKS=$'Unit pass\nPlaywright pass'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS
+
+  run_cmd run_prci_dispatch_starthub
+
+  assert_status "$RUN_STATUS" 0 "starthub prci green noop" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:ci-green — all checks passing, done-done handled by heartbeat' 'starthub green noop output' || return 1
+}
+
+test_prci_dispatch_reports_push_failure() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='51'
+  FAKE_GIT_AHEAD_COUNT='2'
+  FAKE_GIT_PUSH_EXIT='1'
+  export FAKE_GH_OPEN_PR FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT
+
+  run_cmd run_prci_dispatch_nixelo
+
+  assert_status "$RUN_STATUS" 1 "prci dispatch push failure" || return 1
+  assert_contains "$RUN_OUTPUT" 'ERROR:push-failed branch=fixes ahead=2' 'push failure output' || return 1
+}
+
+test_prci_dispatch_escalates_stalled_loop_with_ci_details() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='51'
+  FAKE_GH_PR_CHECKS=$'Unknown fail'
+  FAKE_GH_RUN_ID='12345'
+  FAKE_GH_RUN_LOG='error TS2345: type mismatch'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS FAKE_GH_RUN_ID FAKE_GH_RUN_LOG
+  set_tmux_pane_content '/fix-pr-comments'
+
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch loop warmup 1" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch loop warmup 2" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch loop warmup 3" || return 1
+  run_cmd run_prci_dispatch_nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci dispatch loop escalation" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: dispatched to nixelo (CI: failing)' 'loop escalation dispatch output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'fake-send %1 CI is failing with these specific errors.' 'specific ci fix dispatched' || return 1
+}
+
+test_prci_dispatch_alerts_human_after_repeated_stall() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='51'
+  FAKE_GH_PR_CHECKS=$'Biome fail'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS
+
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 1" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 2" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 3" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 4" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 5" || return 1
+  run_cmd run_prci_dispatch_nixelo
+  assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 6" || return 1
+  run_cmd run_prci_dispatch_nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci dispatch human alert" || return 1
+  assert_contains "$RUN_OUTPUT" 'BLOCKED:alerted-human' 'human alert output' || return 1
+}
+
+test_terminal_classifier_rejects_shell_only() {
+  setup_fake_env
+
+  set_tmux_pane_command 'bash'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier shell-only" || return 1
+  assert_contains "$RUN_OUTPUT" 'STUCK:shell-only' 'shell-only classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_runner() {
+  setup_fake_env
+
+  set_ps_tree $' S opencode opencode\n S node pnpm vitest run'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier busy runner" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:runner' 'busy runner classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_queued() {
+  setup_fake_env
+
+  set_tmux_pane_content $'line 1\nMessages to be submitted\n'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier busy queued" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:queued' 'busy queued classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_gutter_queued() {
+  setup_fake_env
+
+  set_tmux_pane_content $'line 1\n  ┃   QUEUED\n'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier busy gutter queued" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:queued' 'gutter queued classification' || return 1
+}
+
+test_terminal_classifier_reports_stuck_without_prompt() {
+  setup_fake_env
+
+  set_tmux_pane_content $'Build  GPT-5.4 OpenAI\nstatic footer only\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier stuck without prompt" || return 1
+  assert_contains "$RUN_OUTPUT" 'STUCK:no-prompt' 'stuck no prompt classification' || return 1
+}
+
 test_terminal_mode_guard_reports_path_mismatch() {
   setup_fake_env
 
@@ -888,6 +1592,18 @@ test_terminal_mode_guard_reports_path_mismatch() {
 
   assert_status "$RUN_STATUS" 0 "guard path mismatch" || return 1
   assert_contains "$RUN_OUTPUT" 'reason=path-mismatch current=/wrong/path' 'guard path mismatch output' || return 1
+}
+
+test_terminal_mode_guard_rejects_shell_only() {
+  setup_fake_env
+
+  FAKE_CLASSIFIER_STATE='STUCK:shell-only'
+  export FAKE_CLASSIFIER_STATE
+
+  run_cmd run_real_terminal_mode_guard "source '$ROOT_DIR/scripts/terminal_mode_guard.sh'; if terminal_send_preflight nixelo '$HOME/Desktop/nixelo'; then echo ok; else echo reason=\"\$TERMINAL_PREFLIGHT_REASON\" state=\"\$TERMINAL_PREFLIGHT_STATE\"; fi"
+
+  assert_status "$RUN_STATUS" 0 "guard shell-only rejection" || return 1
+  assert_contains "$RUN_OUTPUT" 'reason=terminal-not-ready state=STUCK:shell-only' 'guard rejects shell-only pane' || return 1
 }
 
 test_terminal_mode_guard_uses_paste_buffer_send_path() {
@@ -902,6 +1618,57 @@ test_terminal_mode_guard_uses_paste_buffer_send_path() {
   assert_contains "$command_log" 'tmux set-buffer -b' 'guard uses tmux set-buffer' || return 1
   assert_contains "$command_log" 'tmux paste-buffer -d -b' 'guard uses tmux paste-buffer' || return 1
   assert_contains "$command_log" 'tmux send-keys -t %1 Enter' 'guard sends enter after paste' || return 1
+}
+
+test_is_done_done_blocks_pending_check_suites() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='55'
+  FAKE_GH_HEAD_SHA='dd303612ab37f6bb5d7375294f2086c394567cf5'
+  FAKE_GH_CHECK_SUITES_PENDING_COUNT='2'
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_CHECK_SUITES_PENDING_COUNT
+
+  run_cmd run_real_is_done_done nixelo
+
+  assert_status "$RUN_STATUS" 2 "is_done_done pending check suites" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOT-READY:commit-check-suites-pending (pending=2)' 'pending check suites gate output' || return 1
+}
+
+test_is_done_done_blocks_pending_commit_status_contexts() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='55'
+  FAKE_GH_HEAD_SHA='dd303612ab37f6bb5d7375294f2086c394567cf5'
+  FAKE_GH_COMMIT_STATUS_PENDING_COUNT='1'
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_COMMIT_STATUS_PENDING_COUNT
+
+  run_cmd run_real_is_done_done nixelo
+
+  assert_status "$RUN_STATUS" 2 "is_done_done pending commit statuses" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOT-READY:commit-status-contexts-pending (pending=1)' 'pending commit status gate output' || return 1
+}
+
+test_auto_cycle_waits_for_real_done_done_check_suites() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='50'
+  FAKE_GH_HEAD_SHA='dd303612ab37f6bb5d7375294f2086c394567cf5'
+  FAKE_GH_CHECK_SUITES_PENDING_COUNT='2'
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_CHECK_SUITES_PENDING_COUNT
+
+  set_unit_state active "prci-terminal-nixelo.timer" active
+  set_unit_state enabled "prci-terminal-nixelo.timer" enabled
+  set_unit_state active "prci-terminal-nixelo.service" inactive
+
+  run_cmd run_auto_cycle_with_real_done_done
+
+  assert_status "$RUN_STATUS" 0 "auto cycle real gate pending check suites" || return 1
+  assert_contains "$RUN_OUTPUT" 'WAIT:NOT-READY:commit-check-suites-pending (pending=2)' 'auto cycle waits on queued check suites' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'systemctl --user disable --now prci-terminal-nixelo.timer' 'prci stays enabled while queued suites remain' || return 1
+  assert_not_contains "$command_log" 'gh pr merge 50 --squash --delete-branch' 'auto cycle does not merge with queued suites' || return 1
 }
 
 test_auto_cycle_skips_when_prci_off() {
@@ -1030,12 +1797,34 @@ main() {
   run_test 'terminal automation accepts timestamp-prefixed busy noop' test_terminal_automation_accepts_timestamp_busy
   run_test 'terminal automation rejects stuck noop verification' test_terminal_automation_rejects_stuck_terminal
   run_test 'manual ping reports busy noop' test_manual_ping_reports_busy_noop
+  run_test 'manual ping prioritizes dirty worktree recovery' test_manual_ping_prioritizes_dirty_worktree_recovery
+  run_test 'manual ping rechecks before dirty-worktree send' test_manual_ping_rechecks_before_dirty_worktree_send
   run_test 'manual ping skips transition when auto disabled' test_manual_ping_skips_transition_when_auto_disabled
   run_test 'manual ping transitions when todo is done' test_manual_ping_transitions_when_todo_done
+  run_test 'agent ping prioritizes dirty worktree recovery' test_agent_ping_prioritizes_dirty_worktree_recovery
+  run_test 'agent ping rechecks before send' test_agent_ping_rechecks_before_send
   run_test 'prci ping reports busy noop' test_prci_ping_reports_busy_noop
+  run_test 'prci ping prioritizes dirty worktree recovery' test_prci_ping_prioritizes_dirty_worktree_recovery
+  run_test 'prci ping rechecks before dirty-worktree send' test_prci_ping_rechecks_before_dirty_worktree_send
   run_test 'prci ping runs dispatch script' test_prci_ping_runs_dispatch_script
+  run_test 'prci dispatch pushes ahead branch first' test_prci_dispatch_pushes_ahead_branch_first
+  run_test 'prci dispatch fixes review issues even when ci is green' test_prci_dispatch_fixes_review_issues_even_when_ci_green
+  run_test 'starthub prci dispatch opens pr when missing' test_starthub_prci_dispatch_opens_pr_when_missing
+  run_test 'starthub prci dispatch green noops without review issues' test_starthub_prci_dispatch_green_noops_without_review_issues
+  run_test 'prci dispatch reports push failure' test_prci_dispatch_reports_push_failure
+  run_test 'prci dispatch escalates stalled loop with ci details' test_prci_dispatch_escalates_stalled_loop_with_ci_details
+  run_test 'prci dispatch alerts human after repeated stall' test_prci_dispatch_alerts_human_after_repeated_stall
+  run_test 'terminal classifier rejects shell-only pane' test_terminal_classifier_rejects_shell_only
+  run_test 'terminal classifier reports busy runner' test_terminal_classifier_reports_busy_runner
+  run_test 'terminal classifier reports busy queued' test_terminal_classifier_reports_busy_queued
+  run_test 'terminal classifier reports busy gutter queued' test_terminal_classifier_reports_busy_gutter_queued
+  run_test 'terminal classifier reports stuck without prompt' test_terminal_classifier_reports_stuck_without_prompt
   run_test 'terminal mode guard reports path mismatch' test_terminal_mode_guard_reports_path_mismatch
+  run_test 'terminal mode guard rejects shell-only pane' test_terminal_mode_guard_rejects_shell_only
   run_test 'terminal mode guard uses paste-buffer send path' test_terminal_mode_guard_uses_paste_buffer_send_path
+  run_test 'is_done_done blocks pending check suites' test_is_done_done_blocks_pending_check_suites
+  run_test 'is_done_done blocks pending commit status contexts' test_is_done_done_blocks_pending_commit_status_contexts
+  run_test 'auto cycle waits for real done-done check suites' test_auto_cycle_waits_for_real_done_done_check_suites
   run_test 'auto cycle skips when prci is off' test_auto_cycle_skips_when_prci_off
   run_test 'auto cycle requires attached open pr' test_auto_cycle_requires_open_pr
   run_test 'auto cycle waits for clean worktree before disabling prci' test_auto_cycle_waits_for_clean_worktree_before_disabling_prci
