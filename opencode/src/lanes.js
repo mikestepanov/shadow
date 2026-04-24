@@ -76,7 +76,7 @@ function buildManualPrompt(repo) {
     throw new Error(`Missing repo config for ${repo}`);
   }
 
-  return `If the current objective is already clear, continue. If it is not clear, ${repoConfig.manualObjectiveRecovery} Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why. Do not push just yet. Do not spam progress updates. While waiting on long-running commands or tests, stay quiet unless there is a real blocker or the work completes. Do not repeat the same status twice. Then report what's next.`;
+  return `If the current objective is already clear, continue. If it is not clear, ${repoConfig.manualObjectiveRecovery} Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.`;
 }
 
 function buildAgentPrompt(role) {
