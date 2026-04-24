@@ -72,6 +72,10 @@ This file contains the single source of truth for:
 - Verify the live generated config in `/etc/bashrc` before claiming the NixOS config is wrong or missing.
 - Run `type nixelo` and inspect `~/.bashrc` for masking aliases/functions before concluding the problem is in `shadow`.
 
+### Shell Command Compatibility
+- Do not use `rg` in ad-hoc bash commands unless you verified `rg` is available in that shell first.
+- For filtering command output in shell pipelines, prefer `grep` because it is present on the base system here.
+
 ### Code Validation (Run after completing a significant chunk of work)
 1. **Run `pnpm fixme`** after finishing a feature, multi-file refactor, or major bug fix. This auto-fixes lint/format, rebuilds shared packages, and typechecks. Do NOT run after every small edit — only when a logical unit of work is done.
 2. **Verify**: Check imports if modifying exports.
