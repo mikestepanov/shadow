@@ -75,3 +75,27 @@ submit_tmux_enter() {
   tmux send-keys -t "$target" Enter
   sleep 0.12
 }
+
+repo_dirty_worktree_count() {
+  local workdir="$1"
+  local status
+  status="$(cd "$workdir" 2>/dev/null && git status --porcelain 2>/dev/null || true)"
+  if [[ -z "$status" ]]; then
+    echo 0
+    return 0
+  fi
+
+  printf '%s\n' "$status" | wc -l | tr -d '[:space:]'
+}
+
+dirty_worktree_recovery_prompt() {
+  local mode="$1"
+  local session="$2"
+  local workdir="$3"
+  local dirty_count="$4"
+  local branch
+
+  branch="$(cd "$workdir" 2>/dev/null && git branch --show-current 2>/dev/null || echo "current-branch")"
+
+  printf '%s' "The ${mode} automation for ${session} is blocked by ${dirty_count} uncommitted changes on branch ${branch}. Stop starting new work. Finish the current changes completely: inspect the latest commit, hook, or validation failure; fix the blocker; run the required local checks; commit all completed changes; and push the branch. If commit or push fails again, keep fixing the blocker until the worktree is clean."
+}

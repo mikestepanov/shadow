@@ -6,17 +6,15 @@ const REPO_CONFIG = {
   nixelo: {
     title: "nixelo",
     workdir: resolveRepoPath("..", "nixelo"),
-    manualTodoFile: "todos-hot/README.md",
     manualObjectiveRecovery:
-      "first review `todos-hot/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order.",
+      "first review `todos-hot/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context and recent repo changes to recover it.",
     prciDispatchScript: resolveRepoPath("scripts", "pr_ci_nixelo_dispatch.sh"),
   },
   starthub: {
     title: "starthub",
     workdir: resolveRepoPath("..", "StartHub"),
-    manualTodoFile: "todos/planning/postgres-migration.md",
     manualObjectiveRecovery:
-      "first read `todos/planning/postgres-migration.md` to recover the exact objective, current phase, and work order. Make sure the file is read and include `readOptionalDocumentPictureReference` in your context.",
+      "first read `todos/backend/postgres-repository-layer-rewrite.md` to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context, recent repo changes, and any obvious active todo or planning doc already in progress.",
     prciDispatchScript: resolveRepoPath("scripts", "pr_ci_starthub_dispatch.sh"),
   },
 };
@@ -78,7 +76,7 @@ function buildManualPrompt(repo) {
     throw new Error(`Missing repo config for ${repo}`);
   }
 
-  return `If the current objective is already clear, continue. If it is not clear, ${repoConfig.manualObjectiveRecovery} Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.`;
+  return `If the current objective is already clear, continue. If it is not clear, ${repoConfig.manualObjectiveRecovery} Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why. Do not push just yet. Do not spam progress updates. While waiting on long-running commands or tests, stay quiet unless there is a real blocker or the work completes. Do not repeat the same status twice. Then report what's next.`;
 }
 
 function buildAgentPrompt(role) {
@@ -98,10 +96,7 @@ function createManualLane(repo) {
     throw new Error(`Missing repo config for ${repo}`);
   }
 
-  return {
-    ...createPromptLane(repo, "manual", buildManualPrompt(repo)),
-    todoFile: repoConfig.manualTodoFile,
-  };
+  return createPromptLane(repo, "manual", buildManualPrompt(repo));
 }
 
 function createAgentLane(repo) {

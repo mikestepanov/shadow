@@ -127,18 +127,6 @@ set_ps_tree() {
   printf '%s' "$1" > "$FAKE_STATE_DIR/ps_tree"
 }
 
-set_auto_nixelo_enabled() {
-  local value="$1"
-  printf '{"enabled": %s}\n' "$value" > "$HOME/Desktop/shadow/auto-nixelo-enabled.json"
-}
-
-write_manual_todo() {
-  local relative_path="$1"
-  local content="$2"
-  mkdir -p "$(dirname "$HOME/Desktop/nixelo/$relative_path")"
-  printf '%s' "$content" > "$HOME/Desktop/nixelo/$relative_path"
-}
-
 write_stub_systemctl() {
   local path="$1"
   cat > "$path" <<'EOF'
@@ -664,10 +652,6 @@ if [[ ${1:-} == lane-field ]]; then
       printf '%s\n' "${FAKE_MANUAL_WORKDIR:-$HOME/Desktop/$session}"
       exit 0
       ;;
-    manual:todoFile)
-      printf '%s\n' "${FAKE_MANUAL_TODO_FILE:-todos-hot/README.md}"
-      exit 0
-      ;;
     manual:prompt)
       printf '%s\n' "${FAKE_MANUAL_PROMPT:-Continue the next todo step.}"
       exit 0
@@ -944,7 +928,6 @@ setup_fake_env() {
   printf '%%1\n' > "$FAKE_STATE_DIR/tmux_pane_id"
 
   export FAKE_MANUAL_WORKDIR="$HOME/Desktop/nixelo"
-  export FAKE_MANUAL_TODO_FILE="todos-hot/README.md"
   export FAKE_MANUAL_PROMPT="Continue the next todo step."
   export FAKE_AGENT_WORKDIR="$HOME/Desktop/nixelo"
   export FAKE_AGENT_ROLE="implementer"
@@ -1052,13 +1035,12 @@ run_manual_ping() {
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
     TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
-    AUTO_NIXELO_STATE="$HOME/Desktop/shadow/auto-nixelo-enabled.json" \
+    MANUAL_PING_STATE_DIR="$FAKE_STATE_DIR/manual-ping" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
     FAKE_PREFLIGHT_STATE="${FAKE_PREFLIGHT_STATE:-IDLE:prompt}" \
     FAKE_MANUAL_WORKDIR="$FAKE_MANUAL_WORKDIR" \
-    FAKE_MANUAL_TODO_FILE="$FAKE_MANUAL_TODO_FILE" \
     FAKE_MANUAL_PROMPT="$FAKE_MANUAL_PROMPT" \
     bash "$ROOT_DIR/scripts/manual-terminal-ping" "$@"
 }
@@ -1227,12 +1209,49 @@ test_manual_ping_reports_busy_noop() {
   assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:content-changing' 'manual busy noop output' || return 1
 }
 
+test_manual_ping_sends_prompt_without_todo_tracking() {
+  setup_fake_env
+
+  FAKE_MANUAL_PROMPT='Continue the assigned work.'
+  export FAKE_MANUAL_PROMPT
+
+  run_cmd run_manual_ping starthub
+
+  assert_status "$RUN_STATUS" 0 "manual ping sends prompt" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual session=starthub msg=Continue the assigned work.' 'manual prompt send output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'fake-send %1 Continue the assigned work.' 'manual prompt sent to terminal' || return 1
+}
+
+test_manual_ping_suppresses_duplicate_prompt_within_cooldown() {
+  setup_fake_env
+
+  FAKE_MANUAL_PROMPT='Continue the assigned work.'
+  export FAKE_MANUAL_PROMPT
+
+  run_cmd run_manual_ping starthub
+  assert_status "$RUN_STATUS" 0 "manual ping first prompt send" || return 1
+
+  run_cmd run_manual_ping starthub
+
+  assert_status "$RUN_STATUS" 0 "manual ping duplicate prompt suppression" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:repeat-suppressed session=starthub' 'duplicate prompt suppressed output' || return 1
+
+  local send_count
+  send_count="$(grep -c 'fake-send %1 Continue the assigned work.' "$FAKE_LOG")"
+  if [[ "$send_count" != "1" ]]; then
+    printf 'ASSERT FAIL manual duplicate prompt suppression\nexpected send_count=1 actual=%s\nlog:\n%s\n' "$send_count" "$(cat "$FAKE_LOG")" >&2
+    return 1
+  fi
+}
+
 test_manual_ping_prioritizes_dirty_worktree_recovery() {
   setup_fake_env
 
   USE_REAL_TERMINAL_MODE_GUARD=1
   export USE_REAL_TERMINAL_MODE_GUARD
-  write_manual_todo 'todos-hot/README.md' $'- [ ] open item\n'
   set_git_status $' M src/app.tsx\n M src/test.ts'
 
   run_cmd run_manual_ping nixelo
@@ -1263,41 +1282,27 @@ test_manual_ping_rechecks_before_dirty_worktree_send() {
   assert_not_contains "$command_log" 'fake-send %1' 'manual dirty recheck prevented send' || return 1
 }
 
-test_manual_ping_skips_transition_when_auto_disabled() {
+test_manual_ping_suppresses_duplicate_dirty_worktree_prompt() {
   setup_fake_env
 
-  write_manual_todo 'todos-hot/README.md' $'- [x] done item\n'
-  set_tmux_pane_content ''
-  set_auto_nixelo_enabled false
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  set_git_status $' M src/app.tsx\n M src/test.ts'
+
+  run_cmd run_manual_ping nixelo
+  assert_status "$RUN_STATUS" 0 "manual ping first dirty prompt send" || return 1
 
   run_cmd run_manual_ping nixelo
 
-  assert_status "$RUN_STATUS" 0 "manual ping auto disabled skip" || return 1
-  assert_contains "$RUN_OUTPUT" 'SKIP:auto-nixelo-off session=nixelo reason=todo-done but auto-nixelo disabled' 'manual skip when auto disabled' || return 1
+  assert_status "$RUN_STATUS" 0 "manual ping duplicate dirty prompt suppression" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:repeat-suppressed session=nixelo' 'duplicate dirty prompt suppressed output' || return 1
 
-  local command_log
-  command_log="$(cat "$FAKE_LOG")"
-  assert_not_contains "$command_log" 'systemctl --user disable --now manual-terminal-nixelo.timer' 'manual timer unchanged when auto disabled' || return 1
-  assert_not_contains "$command_log" 'systemctl --user enable --now prci-terminal-nixelo.timer' 'prci timer unchanged when auto disabled' || return 1
-}
-
-test_manual_ping_transitions_when_todo_done() {
-  setup_fake_env
-
-  write_manual_todo 'todos-hot/README.md' $'- [x] done item\n'
-  set_tmux_pane_content ''
-  set_auto_nixelo_enabled true
-
-  run_cmd run_manual_ping nixelo
-
-  assert_status "$RUN_STATUS" 0 "manual ping todo done transition" || return 1
-  assert_contains "$RUN_OUTPUT" 'TRANSITION session=nixelo reason=todo-done (0 open items in todos-hot/README.md)' 'manual transition output' || return 1
-  assert_contains "$RUN_OUTPUT" 'enabled prci-terminal-nixelo.timer' 'manual transition enables prci timer' || return 1
-
-  local command_log
-  command_log="$(cat "$FAKE_LOG")"
-  assert_contains "$command_log" 'systemctl --user disable --now manual-terminal-nixelo.timer' 'manual timer disabled on transition' || return 1
-  assert_contains "$command_log" 'systemctl --user enable --now prci-terminal-nixelo.timer' 'prci timer enabled on transition' || return 1
+  local send_count
+  send_count="$(grep -c 'blocked by 2 uncommitted changes on branch' "$FAKE_LOG")"
+  if [[ "$send_count" != "1" ]]; then
+    printf 'ASSERT FAIL manual duplicate dirty prompt suppression\nexpected send_count=1 actual=%s\nlog:\n%s\n' "$send_count" "$(cat "$FAKE_LOG")" >&2
+    return 1
+  fi
 }
 
 test_agent_ping_prioritizes_dirty_worktree_recovery() {
@@ -1797,10 +1802,11 @@ main() {
   run_test 'terminal automation accepts timestamp-prefixed busy noop' test_terminal_automation_accepts_timestamp_busy
   run_test 'terminal automation rejects stuck noop verification' test_terminal_automation_rejects_stuck_terminal
   run_test 'manual ping reports busy noop' test_manual_ping_reports_busy_noop
+  run_test 'manual ping sends prompt without todo tracking' test_manual_ping_sends_prompt_without_todo_tracking
+  run_test 'manual ping suppresses duplicate prompt within cooldown' test_manual_ping_suppresses_duplicate_prompt_within_cooldown
   run_test 'manual ping prioritizes dirty worktree recovery' test_manual_ping_prioritizes_dirty_worktree_recovery
   run_test 'manual ping rechecks before dirty-worktree send' test_manual_ping_rechecks_before_dirty_worktree_send
-  run_test 'manual ping skips transition when auto disabled' test_manual_ping_skips_transition_when_auto_disabled
-  run_test 'manual ping transitions when todo is done' test_manual_ping_transitions_when_todo_done
+  run_test 'manual ping suppresses duplicate dirty-worktree prompt' test_manual_ping_suppresses_duplicate_dirty_worktree_prompt
   run_test 'agent ping prioritizes dirty worktree recovery' test_agent_ping_prioritizes_dirty_worktree_recovery
   run_test 'agent ping rechecks before send' test_agent_ping_rechecks_before_send
   run_test 'prci ping reports busy noop' test_prci_ping_reports_busy_noop

@@ -9,8 +9,30 @@ fi
 session="$1"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-OPENCODECTL="$SCRIPT_DIR/opencodectl"
-source "$SCRIPT_DIR/terminal_mode_guard.sh"
+OPENCODECTL="${OPENCODECTL:-$SCRIPT_DIR/opencodectl}"
+TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-$SCRIPT_DIR/terminal_mode_guard.sh}"
+source "$TERMINAL_MODE_GUARD"
+
+report_preflight_failure() {
+  local note="${1:-}"
+  case "$TERMINAL_PREFLIGHT_REASON" in
+    session-missing|pane-missing)
+      echo "SKIP role=${role} session=${session} reason=${TERMINAL_PREFLIGHT_REASON}${note:+ note=${note}}"
+      ;;
+    path-mismatch)
+      echo "SKIP role=${role} session=${session} reason=path-mismatch current=$TERMINAL_PREFLIGHT_CURRENT_PATH expected=$workdir${note:+ note=${note}}"
+      ;;
+    terminal-not-ready)
+      if [[ "$TERMINAL_PREFLIGHT_STATE" == BUSY:* ]]; then
+        echo "NOOP:terminal-busy role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE${note:+ note=${note}}"
+      elif [[ "$TERMINAL_PREFLIGHT_STATE" == STUCK:* ]]; then
+        echo "NOOP:terminal-stuck role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE${note:+ note=${note}}"
+      else
+        echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-ping role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE${note:+ note=${note}}"
+      fi
+      ;;
+  esac
+}
 
 if ! workdir="$($OPENCODECTL lane-field agent "$session" workdir 2>/dev/null)"; then
   echo "invalid session: $session" >&2
@@ -28,23 +50,32 @@ if ! msg="$($OPENCODECTL lane-field agent "$session" prompt 2>/dev/null)"; then
 fi
 
 if ! terminal_send_preflight "$session" "$workdir"; then
-  case "$TERMINAL_PREFLIGHT_REASON" in
-    session-missing|pane-missing)
-      echo "SKIP role=${role} session=${session} reason=${TERMINAL_PREFLIGHT_REASON}"
-      ;;
-    path-mismatch)
-      echo "SKIP role=${role} session=${session} reason=path-mismatch current=$TERMINAL_PREFLIGHT_CURRENT_PATH expected=$workdir"
-      ;;
-    terminal-not-ready)
-      if [[ "$TERMINAL_PREFLIGHT_STATE" == BUSY:* ]]; then
-        echo "NOOP:terminal-busy role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE"
-      elif [[ "$TERMINAL_PREFLIGHT_STATE" == STUCK:* ]]; then
-        echo "NOOP:terminal-stuck role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE"
-      else
-        echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-ping role=${role} session=${session} state=$TERMINAL_PREFLIGHT_STATE"
-      fi
-      ;;
-  esac
+  report_preflight_failure
+  exit 0
+fi
+
+target="$TERMINAL_PREFLIGHT_PANE"
+
+dirty_count="$(repo_dirty_worktree_count "$workdir")"
+if [[ "$dirty_count" != "0" ]]; then
+  if ! terminal_send_preflight "$session" "$workdir"; then
+    report_preflight_failure "final-recheck"
+    exit 0
+  fi
+
+  target="$TERMINAL_PREFLIGHT_PANE"
+  dirty_msg="$(dirty_worktree_recovery_prompt agent "$session" "$workdir" "$dirty_count")"
+  send_tmux_text_enter "$target" "$dirty_msg" || {
+    echo "BLOCKED_HUMAN: prompt-not-ready-for-agent-dirty-worktree role=${role} session=${session}"
+    exit 0
+  }
+
+  echo "SENT role=${role} session=${session} mode=dirty-worktree changes=${dirty_count}"
+  exit 0
+fi
+
+if ! terminal_send_preflight "$session" "$workdir"; then
+  report_preflight_failure "final-recheck"
   exit 0
 fi
 

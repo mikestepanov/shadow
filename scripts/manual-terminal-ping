@@ -2,32 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AUTO_NIXELO_STATE="${AUTO_NIXELO_STATE:-${SCRIPT_DIR}/auto-nixelo-enabled.json}"
 OPENCODECTL="${OPENCODECTL:-${SCRIPT_DIR}/scripts/opencodectl}"
 TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-${SCRIPT_DIR}/scripts/terminal_mode_guard.sh}"
+MANUAL_PING_STATE_DIR="${MANUAL_PING_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shadow/manual-terminal-ping}"
+MANUAL_PING_REPEAT_COOLDOWN_SECONDS="${MANUAL_PING_REPEAT_COOLDOWN_SECONDS:-1800}"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
   exit 2
 fi
 
-is_auto_nixelo_enabled() {
-  if [[ ! -f "$AUTO_NIXELO_STATE" ]]; then
-    return 1
-  fi
-  local val
-  val=$(python3 -c "import json; print(json.load(open('$AUTO_NIXELO_STATE'))['enabled'])" 2>/dev/null || echo "False")
-  [[ "$val" == "True" ]]
-}
-
 session="$1"
 if ! workdir="$($OPENCODECTL lane-field manual "$session" workdir 2>/dev/null)"; then
   echo "invalid session: $session" >&2
-  exit 2
-fi
-
-if ! todo_file="$($OPENCODECTL lane-field manual "$session" todoFile 2>/dev/null)"; then
-  echo "missing manual todo file for session: $session" >&2
   exit 2
 fi
 
@@ -64,6 +51,51 @@ report_preflight_failure() {
   esac
 }
 
+message_fingerprint() {
+  printf '%s' "$1" | cksum | cut -d' ' -f1
+}
+
+manual_ping_state_file() {
+  printf '%s/%s.last' "$MANUAL_PING_STATE_DIR" "$1"
+}
+
+manual_repeat_suppressed() {
+  local session_name="$1"
+  local text="$2"
+  local state_file current_fingerprint now last_timestamp last_fingerprint age
+
+  state_file="$(manual_ping_state_file "$session_name")"
+  current_fingerprint="$(message_fingerprint "$text")"
+  now="$(date +%s)"
+
+  if [[ ! -f "$state_file" ]]; then
+    return 1
+  fi
+
+  read -r last_timestamp last_fingerprint < "$state_file" || return 1
+  if [[ -z "${last_timestamp:-}" || -z "${last_fingerprint:-}" || "$last_fingerprint" != "$current_fingerprint" ]]; then
+    return 1
+  fi
+
+  age=$((now - last_timestamp))
+  if (( age < 0 || age >= MANUAL_PING_REPEAT_COOLDOWN_SECONDS )); then
+    return 1
+  fi
+
+  printf 'NOOP:repeat-suppressed session=%s age=%ss cooldown=%ss\n' "$session_name" "$age" "$MANUAL_PING_REPEAT_COOLDOWN_SECONDS"
+  return 0
+}
+
+record_manual_send() {
+  local session_name="$1"
+  local text="$2"
+  local state_file
+
+  mkdir -p "$MANUAL_PING_STATE_DIR"
+  state_file="$(manual_ping_state_file "$session_name")"
+  printf '%s %s\n' "$(date +%s)" "$(message_fingerprint "$text")" > "$state_file"
+}
+
 if ! terminal_send_preflight "$session" "$workdir"; then
   report_preflight_failure
   exit 0
@@ -87,94 +119,27 @@ if has_error_loop "$pane_tail"; then
   exit 0
 fi
 
-# --- TODO completion check (runs FIRST — gates done-loop detection) ---
-# Check the assigned todo_file + any .md files it links to (markdown links).
-# If the assigned file doesn't exist, that's an error — do NOT transition.
-todo_path="${workdir}/${todo_file}"
-if [[ ! -f "$todo_path" ]]; then
-  echo "SKIP manual session=${session} reason=todo-file-missing path=${todo_path}"
-  exit 0
-fi
-
-# Collect files to check: the todo_file itself + any markdown-linked .md files
-todo_dir="$(dirname "$todo_path")"
-files_to_check=("$todo_path")
-while IFS= read -r linked; do
-  # Resolve relative path from the todo_file's directory
-  resolved="${todo_dir}/${linked}"
-  if [[ -f "$resolved" ]]; then
-    files_to_check+=("$resolved")
+dirty_count="$(repo_dirty_worktree_count "$workdir")"
+if [[ "$dirty_count" != "0" ]]; then
+  if ! terminal_send_preflight "$session" "$workdir"; then
+    report_preflight_failure "final-recheck"
+    exit 0
   fi
-done < <(grep -oE '\]\(\.?/?[^)]+\.md\)' "$todo_path" 2>/dev/null | sed 's/\](\.\/\?//;s/)//')
 
-open_items=0
-checklist_items=0
-for f in "${files_to_check[@]}"; do
-  open_count=$(grep -c '^\s*- \[ \]' "$f" 2>/dev/null || true)
-  open_count="${open_count:-0}"
-  open_count="$(echo "$open_count" | tr -d '[:space:]')"
-  open_items=$((open_items + open_count))
+  target="$TERMINAL_PREFLIGHT_PANE"
+  dirty_msg="$(dirty_worktree_recovery_prompt manual "$session" "$workdir" "$dirty_count")"
+  if manual_repeat_suppressed "$session" "$dirty_msg"; then
+    exit 0
+  fi
 
-  checklist_count=$(grep -Ec '^\s*- \[[ xX]\]' "$f" 2>/dev/null || true)
-  checklist_count="${checklist_count:-0}"
-  checklist_count="$(echo "$checklist_count" | tr -d '[:space:]')"
-  checklist_items=$((checklist_items + checklist_count))
-done
-
-# Checklist format guard: missing checkboxes must never be treated as TODO-done.
-if [[ "$checklist_items" -eq 0 ]]; then
-  format_msg="Read ${todo_file}. Do NOT start implementation yet. First convert this TODO into markdown checkboxes (- [ ] for open items, - [x] for done items). Preserve all existing tasks/content. After converting, continue with the highest-impact open checkbox."
-  send_tmux_text_enter "$target" "$format_msg" || {
-    echo "BLOCKED_HUMAN: prompt-not-ready-for-format-fix session=${session}"
+  send_tmux_text_enter "$target" "$dirty_msg" || {
+    echo "BLOCKED_HUMAN: prompt-not-ready-for-manual-dirty-worktree session=${session}"
     exit 0
   }
 
-  echo "SENT manual session=${session} mode=$mode msg=$format_msg"
-  exit 0
-fi
+  record_manual_send "$session" "$dirty_msg"
 
-# --- Done-loop detection: only if TODO is actually done (open_items == 0) ---
-# If there are still open TODO items, terminal saying "done" is a false positive.
-done_count=$(tmux capture-pane -t "$target" -p | tail -60 | grep -Eic '(TODO is complete|All done|Nothing left to implement|no.*implementable.*items|please cancel the recurring|please cancel|please stop|loop.*please|looping|0 failed.*0 flaky|no open items|nothing.*left|all.*resolved|all.*passing|all.*green|clean run)' || true)
-if [[ "$done_count" -ge 2 && "$open_items" -eq 0 ]]; then
-  # Gate: only auto-transition for nixelo if auto-nixelo is enabled
-  if [[ "$session" == "nixelo" ]] && ! is_auto_nixelo_enabled; then
-    echo "SKIP:auto-nixelo-off session=${session} reason=done-loop_detected but auto-nixelo disabled"
-    exit 0
-  fi
-
-  echo "TRANSITION session=${session} reason=done-loop_detected (terminal reported done ${done_count} times)"
-
-  # 1) Disable this manual timer
-  systemctl --user disable --now "manual-terminal-${session}.timer" 2>/dev/null || true
-  echo "  disabled manual-terminal-${session}.timer"
-
-  # 2) Enable PR-CI systemd timer
-  systemctl --user enable --now "prci-terminal-${session}.timer" 2>/dev/null || true
-  echo "  enabled prci-terminal-${session}.timer"
-
-  exit 0
-elif [[ "$done_count" -ge 2 && "$open_items" -gt 0 ]]; then
-  echo "INFO session=${session} done-loop-text-detected=${done_count} but open_items=${open_items} — ignoring, TODO not done"
-fi
-
-if [[ "$open_items" -eq 0 ]]; then
-  # Gate: only auto-transition for nixelo if auto-nixelo is enabled
-  if [[ "$session" == "nixelo" ]] && ! is_auto_nixelo_enabled; then
-    echo "SKIP:auto-nixelo-off session=${session} reason=todo-done but auto-nixelo disabled"
-    exit 0
-  fi
-
-  echo "TRANSITION session=${session} reason=todo-done (0 open items in ${todo_file})"
-
-  # 1) Disable this manual timer
-  systemctl --user disable --now "manual-terminal-${session}.timer" 2>/dev/null || true
-  echo "  disabled manual-terminal-${session}.timer"
-
-  # 2) Enable PR-CI systemd timer
-  systemctl --user enable --now "prci-terminal-${session}.timer" 2>/dev/null || true
-  echo "  enabled prci-terminal-${session}.timer"
-
+  echo "SENT manual session=${session} mode=dirty-worktree changes=${dirty_count}"
   exit 0
 fi
 
@@ -185,9 +150,15 @@ fi
 
 target="$TERMINAL_PREFLIGHT_PANE"
 
+if manual_repeat_suppressed "$session" "$msg"; then
+  exit 0
+fi
+
 send_tmux_text_enter "$target" "$msg" || {
   echo "BLOCKED_HUMAN: prompt-not-ready-for-manual-ping session=${session}"
   exit 0
 }
+
+record_manual_send "$session" "$msg"
 
 echo "SENT manual session=${session} msg=${msg:0:50}..."

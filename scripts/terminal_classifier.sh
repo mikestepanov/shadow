@@ -31,7 +31,7 @@ VOLATILE_STRIP='/(Working \(|Waiting for|esc to interrupt|% left|background term
 RUNNER_RE='(pnpm|npm|npx|tsx|playwright|vitest|jest|tsc|pytest|python|gradle|mvn|docker|kubectl|aws|curl|wget|make|sh|bash.*-c|go test|cargo test|node.*playwright|node.*jest|node.*vitest)'
 
 # Queue marker patterns (agnostic across Codex/Claude/Gemini)
-QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued messages|^[[:space:]]*QUEUED[[:space:]]*$)'
+QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued messages|^QUEUED[[:space:]]*$)'
 
 # Prompt glyphs
 # OpenCode uses a box-drawing gutter for the live input row.
@@ -89,7 +89,7 @@ _pane_text() {
 
 _has_queue_marker() {
   local text="$1"
-  printf '%s\n' "$text" | tail -30 | grep -Eiq "$QUEUE_RE"
+  printf '%s\n' "$text" | tail -30 | sed -E 's/^[[:space:]│┃╎╏▏▎▍▌▋▊▉█▐▕]+//' | grep -Eiq "$QUEUE_RE"
 }
 
 _content_hash() {
@@ -145,9 +145,10 @@ classify_terminal() {
 
   pane_cmd=$(_pane_cmd "$pane")
 
-  # Shell with no CLI running = idle
+  # Bare shell means the automation host fell out of OpenCode.
+  # Never type prompts into a raw shell and call it ready.
   [[ "$pane_cmd" == "bash" || "$pane_cmd" == "zsh" || "$pane_cmd" == "fish" ]] && {
-    echo "IDLE:shell"
+    echo "STUCK:shell-only"
     return
   }
 

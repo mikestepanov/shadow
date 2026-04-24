@@ -11,10 +11,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/terminal_classifier.sh"
-source "$SCRIPT_DIR/terminal_mode_guard.sh"
+TERMINAL_CLASSIFIER="${TERMINAL_CLASSIFIER:-$SCRIPT_DIR/terminal_classifier.sh}"
+TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-$SCRIPT_DIR/terminal_mode_guard.sh}"
+source "$TERMINAL_CLASSIFIER"
+source "$TERMINAL_MODE_GUARD"
 
-OPENCODECTL="$HOME/Desktop/shadow/scripts/opencodectl"
+OPENCODECTL="${OPENCODECTL:-$HOME/Desktop/shadow/scripts/opencodectl}"
 
 STATE_FILE="$HOME/Desktop/shadow/heartbeat-dispatch-state.json"
 MAX_IDENTICAL="${MAX_IDENTICAL:-3}"
@@ -93,6 +95,18 @@ get_ahead_count() {
   }
 
   git rev-list --count "origin/${branch}..${branch}" 2>/dev/null || echo "unknown"
+}
+
+dirty_worktree_count() {
+  cd "$REPO_DIR"
+  local status
+  status="$(git status --porcelain 2>/dev/null || true)"
+  if [[ -z "$status" ]]; then
+    echo 0
+    return 0
+  fi
+
+  printf '%s\n' "$status" | wc -l | tr -d '[:space:]'
 }
 
 push_current_branch_if_needed() {

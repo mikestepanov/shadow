@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "status": "node ./src/index.js status"
+    "status": "node ./src/index.js status",
+    "test:automation": "bash ../scripts/test-automation-regressions.sh"
   }
 }
