@@ -41,7 +41,7 @@ PROMPT_RE='^[[:space:]]*(>|›|❯|┃)([[:space:]]*$|[[:space:]]+.*)'
 WORK_INDICATOR_RE='(Working \(|esc to interrupt|Waiting for background terminal)'
 
 # OpenCode markers that indicate the static UI is still interactive.
-OPENCODE_READY_RE='(ctrl\+p commands|OpenCode [0-9]|Ask anything\.\.\.|tab agents|Build[[:space:]]+[[:alnum:].-]+)'
+OPENCODE_READY_RE='(ctrl\+p commands|OpenCode [0-9]|Ask anything\.\.\.|tab agents|Build[[:space:]]+[[:alnum:].-]+|gpt-[[:digit:].]+([[:space:]][[:alnum:]._-]+)*[[:space:]]+·[[:space:]]+~?/)'
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -215,7 +215,7 @@ classify_terminal() {
   # ── Layer 5: Static ready UI detection ──
   # OpenCode can be ready for input even when the visible prompt is not rendered
   # near the cursor (completed response screen, static footer-only state).
-  if [[ "$pane_cmd" == "opencode" ]] && _looks_like_opencode_ready_ui "$pane"; then
+  if [[ "$pane_cmd" == "opencode" || "$pane_cmd" == "node" ]] && _looks_like_opencode_ready_ui "$pane"; then
     echo "IDLE:opencode-static"
     return
   fi

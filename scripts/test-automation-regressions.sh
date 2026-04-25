@@ -1579,13 +1579,25 @@ test_terminal_classifier_reports_busy_gutter_queued() {
 test_terminal_classifier_reports_stuck_without_prompt() {
   setup_fake_env
 
-  set_tmux_pane_content $'Build  GPT-5.4 OpenAI\nstatic footer only\n'
+  set_tmux_pane_content $'Completed output block\nstatic footer only\n'
   set_tmux_pane_command 'node'
 
   run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
 
   assert_status "$RUN_STATUS" 0 "classifier stuck without prompt" || return 1
   assert_contains "$RUN_OUTPUT" 'STUCK:no-prompt' 'stuck no prompt classification' || return 1
+}
+
+test_terminal_classifier_accepts_gpt_footer_ready_ui() {
+  setup_fake_env
+
+  set_tmux_pane_content $'Committed the completed work.\n\n  gpt-5.5 xhigh · ~/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier gpt footer ready" || return 1
+  assert_contains "$RUN_OUTPUT" 'IDLE:opencode-static' 'gpt footer ready classification' || return 1
 }
 
 test_terminal_mode_guard_reports_path_mismatch() {
@@ -1825,6 +1837,7 @@ main() {
   run_test 'terminal classifier reports busy queued' test_terminal_classifier_reports_busy_queued
   run_test 'terminal classifier reports busy gutter queued' test_terminal_classifier_reports_busy_gutter_queued
   run_test 'terminal classifier reports stuck without prompt' test_terminal_classifier_reports_stuck_without_prompt
+  run_test 'terminal classifier accepts gpt footer ready ui' test_terminal_classifier_accepts_gpt_footer_ready_ui
   run_test 'terminal mode guard reports path mismatch' test_terminal_mode_guard_reports_path_mismatch
   run_test 'terminal mode guard rejects shell-only pane' test_terminal_mode_guard_rejects_shell_only
   run_test 'terminal mode guard uses paste-buffer send path' test_terminal_mode_guard_uses_paste_buffer_send_path
