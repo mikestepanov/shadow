@@ -1588,16 +1588,53 @@ test_terminal_classifier_reports_stuck_without_prompt() {
   assert_contains "$RUN_OUTPUT" 'STUCK:no-prompt' 'stuck no prompt classification' || return 1
 }
 
-test_terminal_classifier_accepts_gpt_footer_ready_ui() {
+test_terminal_classifier_accepts_generic_footer_ready_ui() {
   setup_fake_env
 
-  set_tmux_pane_content $'Committed the completed work.\n\n  gpt-5.5 xhigh · ~/Desktop/nixelo\n'
+  set_tmux_pane_content $'Committed the completed work.\n\n  ready footer · ~/Desktop/nixelo\n'
   set_tmux_pane_command 'node'
 
   run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
 
-  assert_status "$RUN_STATUS" 0 "classifier gpt footer ready" || return 1
-  assert_contains "$RUN_OUTPUT" 'IDLE:opencode-static' 'gpt footer ready classification' || return 1
+  assert_status "$RUN_STATUS" 0 "classifier generic footer ready" || return 1
+  assert_contains "$RUN_OUTPUT" 'IDLE:static-ready-ui' 'generic footer ready classification' || return 1
+}
+
+test_terminal_classifier_accepts_absolute_path_footer_ready_ui() {
+  setup_fake_env
+
+  set_tmux_pane_content $'Completed response block.\n\n  status footer · '"$HOME"$'/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier absolute footer ready" || return 1
+  assert_contains "$RUN_OUTPUT" 'IDLE:static-ready-ui' 'absolute footer ready classification' || return 1
+}
+
+test_terminal_classifier_rejects_unrelated_footer_path() {
+  setup_fake_env
+
+  set_tmux_pane_content $'Completed response block.\n\n  ready footer · ~/Desktop/other-repo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier unrelated footer path" || return 1
+  assert_contains "$RUN_OUTPUT" 'STUCK:no-prompt' 'unrelated footer path rejected' || return 1
+}
+
+test_terminal_classifier_accepts_footer_for_current_path_only() {
+  setup_fake_env
+
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_content $'Completed response block.\n\n  idle footer · ~/Desktop/StartHub\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal starthub"
+
+  assert_status "$RUN_STATUS" 0 "classifier current path footer ready" || return 1
+  assert_contains "$RUN_OUTPUT" 'IDLE:static-ready-ui' 'current path footer ready classification' || return 1
 }
 
 test_terminal_mode_guard_reports_path_mismatch() {
@@ -1837,7 +1874,10 @@ main() {
   run_test 'terminal classifier reports busy queued' test_terminal_classifier_reports_busy_queued
   run_test 'terminal classifier reports busy gutter queued' test_terminal_classifier_reports_busy_gutter_queued
   run_test 'terminal classifier reports stuck without prompt' test_terminal_classifier_reports_stuck_without_prompt
-  run_test 'terminal classifier accepts gpt footer ready ui' test_terminal_classifier_accepts_gpt_footer_ready_ui
+  run_test 'terminal classifier accepts generic footer ready ui' test_terminal_classifier_accepts_generic_footer_ready_ui
+  run_test 'terminal classifier accepts absolute path footer ready ui' test_terminal_classifier_accepts_absolute_path_footer_ready_ui
+  run_test 'terminal classifier rejects unrelated footer path' test_terminal_classifier_rejects_unrelated_footer_path
+  run_test 'terminal classifier accepts footer for current path only' test_terminal_classifier_accepts_footer_for_current_path_only
   run_test 'terminal mode guard reports path mismatch' test_terminal_mode_guard_reports_path_mismatch
   run_test 'terminal mode guard rejects shell-only pane' test_terminal_mode_guard_rejects_shell_only
   run_test 'terminal mode guard uses paste-buffer send path' test_terminal_mode_guard_uses_paste_buffer_send_path

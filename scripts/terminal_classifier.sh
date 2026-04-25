@@ -40,8 +40,8 @@ PROMPT_RE='^[[:space:]]*(>|›|❯|┃)([[:space:]]*$|[[:space:]]+.*)'
 # Active work indicators (only meaningful within 5 lines of cursor)
 WORK_INDICATOR_RE='(Working \(|esc to interrupt|Waiting for background terminal)'
 
-# OpenCode markers that indicate the static UI is still interactive.
-OPENCODE_READY_RE='(ctrl\+p commands|OpenCode [0-9]|Ask anything\.\.\.|tab agents|Build[[:space:]]+[[:alnum:].-]+|gpt-[[:digit:].]+([[:space:]][[:alnum:]._-]+)*[[:space:]]+·[[:space:]]+~?/)'
+# Static UI markers that indicate the harness is still interactive.
+READY_UI_RE='(ctrl\+p commands|OpenCode [0-9]|Ask anything\.\.\.|tab agents|Build[[:space:]]+[[:alnum:].-]+)'
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -87,6 +87,10 @@ _pane_text() {
   tmux capture-pane -t "$1" -p 2>/dev/null
 }
 
+_pane_path() {
+  tmux display-message -p -t "$1" '#{pane_current_path}' 2>/dev/null || true
+}
+
 _has_queue_marker() {
   local text="$1"
   printf '%s\n' "$text" | tail -30 | sed -E 's/^[[:space:]│┃╎╏▏▎▍▌▋▊▉█▐▕]+//' | grep -Eiq "$QUEUE_RE"
@@ -123,9 +127,48 @@ _work_indicator_near_cursor() {
   printf '%s\n' "$above" | grep -Eiq "Working \("
 }
 
-_looks_like_opencode_ready_ui() {
+_looks_like_footer_path_ready_ui() {
   local pane="$1"
-  _pane_text "$pane" | tail -40 | grep -Eiq "$OPENCODE_READY_RE"
+  local tail_text pane_path home_prefix home_relative line trimmed expected_path alt_path
+
+  pane_path=$(_pane_path "$pane")
+  [[ -n "$pane_path" ]] || return 1
+
+  expected_path="$pane_path"
+  alt_path=""
+  home_prefix="${HOME%/}/"
+  if [[ "$pane_path" == "$HOME" ]]; then
+    alt_path='~'
+  elif [[ "$pane_path" == "$home_prefix"* ]]; then
+    home_relative="${pane_path#"$home_prefix"}"
+    alt_path="~/${home_relative}"
+  fi
+
+  tail_text=$(_pane_text "$pane" | awk 'NF { print }' | tail -5)
+  while IFS= read -r line; do
+    trimmed="$(printf '%s\n' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    [[ "$trimmed" == *' · '* ]] || continue
+    if [[ "$trimmed" == *" · $expected_path" ]]; then
+      return 0
+    fi
+    if [[ -n "$alt_path" && "$trimmed" == *" · $alt_path" ]]; then
+      return 0
+    fi
+  done <<< "$tail_text"
+
+  return 1
+}
+
+_looks_like_static_ready_ui() {
+  local pane="$1"
+  local tail_text
+  tail_text=$(_pane_text "$pane" | tail -40)
+
+  if printf '%s\n' "$tail_text" | grep -Eiq "$READY_UI_RE"; then
+    return 0
+  fi
+
+  _looks_like_footer_path_ready_ui "$pane"
 }
 
 # ── Main classifier ────────────────────────────────────────────────
@@ -213,10 +256,10 @@ classify_terminal() {
   fi
 
   # ── Layer 5: Static ready UI detection ──
-  # OpenCode can be ready for input even when the visible prompt is not rendered
-  # near the cursor (completed response screen, static footer-only state).
-  if [[ "$pane_cmd" == "opencode" || "$pane_cmd" == "node" ]] && _looks_like_opencode_ready_ui "$pane"; then
-    echo "IDLE:opencode-static"
+  # The harness can be ready for input even when the visible prompt is not
+  # rendered near the cursor (completed response screen, static footer-only UI).
+  if _looks_like_static_ready_ui "$pane"; then
+    echo "IDLE:static-ready-ui"
     return
   fi
 
