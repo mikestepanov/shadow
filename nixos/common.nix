@@ -3,6 +3,18 @@
 let
   pumble = pkgs.callPackage ./pumble.nix {};
   opencodePinned = pkgs.callPackage ./opencode-bin.nix {};
+  githubDesktopFixed = pkgs.github-desktop.overrideAttrs (oldAttrs: {
+    nativeBuildInputs = (oldAttrs.nativeBuildInputs or []) ++ [ pkgs.makeWrapper ];
+    postInstall = (oldAttrs.postInstall or "") + ''
+      gitCore="$out/share/github-desktop/resources/app/git/libexec/git-core"
+      mkdir -p "$gitCore"
+      ln -s ${pkgs.git}/libexec/git-core/* "$gitCore/"
+
+      wrapProgram "$out/bin/github-desktop" \
+        --set GIT_EXEC_PATH "${pkgs.git}/libexec/git-core" \
+        --add-flags "--disable-gpu"
+    '';
+  });
 in
 {
   boot.loader.systemd-boot.enable = true;
@@ -259,7 +271,7 @@ in
 
     git
     gh
-    github-desktop
+    githubDesktopFixed
     gitbutler
     google-chrome
     antigravity

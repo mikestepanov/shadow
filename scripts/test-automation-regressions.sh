@@ -935,7 +935,7 @@ setup_fake_env() {
   export FAKE_PRCI_WORKDIR="$HOME/Desktop/nixelo"
   export FAKE_PRCI_DISPATCH_SCRIPT="$TEST_FAKE_PRCI_DISPATCH"
 
-  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT USE_REAL_TERMINAL_MODE_GUARD FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
+  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
 }
 
 terminal_mode_guard_for_test() {
@@ -946,13 +946,21 @@ terminal_mode_guard_for_test() {
   fi
 }
 
+terminal_classifier_for_test() {
+  if [[ "${USE_REAL_TERMINAL_CLASSIFIER:-0}" == "1" ]]; then
+    printf '%s\n' "$ROOT_DIR/scripts/terminal_classifier.sh"
+  else
+    printf '%s\n' "$TEST_FAKE_TERMINAL_CLASSIFIER"
+  fi
+}
+
 run_terminal_automation() {
   env \
     HOME="$HOME" \
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
-    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
     TIMERS_INSTALL="$TEST_FAKE_TIMERS_INSTALL" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
@@ -1034,8 +1042,7 @@ run_manual_ping() {
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
-    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
-    MANUAL_PING_STATE_DIR="$FAKE_STATE_DIR/manual-ping" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
@@ -1051,7 +1058,7 @@ run_agent_ping() {
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
-    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
@@ -1068,7 +1075,7 @@ run_prci_ping() {
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
-    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
@@ -1085,7 +1092,7 @@ run_prci_dispatch_nixelo() {
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
-    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
@@ -1112,7 +1119,7 @@ run_prci_dispatch_starthub() {
     PATH="$PATH" \
     OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
     TERMINAL_MODE_GUARD="$(terminal_mode_guard_for_test)" \
-    TERMINAL_CLASSIFIER="$TEST_FAKE_TERMINAL_CLASSIFIER" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     FAKE_PREFLIGHT_RESULT="${FAKE_PREFLIGHT_RESULT:-ok}" \
@@ -1148,6 +1155,23 @@ run_real_terminal_classifier() {
     FAKE_LOG="$FAKE_LOG" \
     FAKE_STATE_DIR="$FAKE_STATE_DIR" \
     CONTENT_PROBE_DELAY="${CONTENT_PROBE_DELAY:-0}" \
+    bash -lc "$1"
+}
+
+run_real_prci_common() {
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    OPENCODECTL="$TEST_FAKE_OPENCODECTL" \
+    TERMINAL_MODE_GUARD="$ROOT_DIR/scripts/terminal_mode_guard.sh" \
+    TERMINAL_CLASSIFIER="$ROOT_DIR/scripts/terminal_classifier.sh" \
+    REPO_NAME="starthub" \
+    REPO_DIR="$HOME/Desktop/StartHub" \
+    TMUX_SESSION="starthub" \
+    MAX_IDENTICAL="3" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    CONTENT_PROBE_DELAY="0" \
     bash -lc "$1"
 }
 
@@ -1225,26 +1249,50 @@ test_manual_ping_sends_prompt_without_todo_tracking() {
   assert_contains "$command_log" 'fake-send %1 Continue the assigned work.' 'manual prompt sent to terminal' || return 1
 }
 
-test_manual_ping_suppresses_duplicate_prompt_within_cooldown() {
+test_manual_ping_real_preflight_sends_on_idle_footer() {
   setup_fake_env
 
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  USE_REAL_TERMINAL_CLASSIFIER=1
+  export USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER
+  FAKE_MANUAL_WORKDIR="$HOME/Desktop/StartHub"
   FAKE_MANUAL_PROMPT='Continue the assigned work.'
-  export FAKE_MANUAL_PROMPT
+  export FAKE_MANUAL_WORKDIR FAKE_MANUAL_PROMPT
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'Completed response block\n\n  ready footer · ~/Desktop/StartHub\n'
 
   run_cmd run_manual_ping starthub
-  assert_status "$RUN_STATUS" 0 "manual ping first prompt send" || return 1
+
+  assert_status "$RUN_STATUS" 0 "manual real preflight idle send" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual session=starthub msg=Continue the assigned work.' 'manual real preflight send output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux set-buffer -b' 'manual real preflight used paste buffer' || return 1
+  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'manual real preflight pasted prompt' || return 1
+}
+
+test_manual_ping_real_preflight_blocks_background_wait() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  USE_REAL_TERMINAL_CLASSIFIER=1
+  export USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER
+  FAKE_MANUAL_WORKDIR="$HOME/Desktop/StartHub"
+  export FAKE_MANUAL_WORKDIR
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'• Waiting for background terminal · pnpm test\n\n  ready footer · ~/Desktop/StartHub\n'
 
   run_cmd run_manual_ping starthub
 
-  assert_status "$RUN_STATUS" 0 "manual ping duplicate prompt suppression" || return 1
-  assert_contains "$RUN_OUTPUT" 'NOOP:repeat-suppressed session=starthub' 'duplicate prompt suppressed output' || return 1
+  assert_status "$RUN_STATUS" 0 "manual real preflight busy noop" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=starthub state=BUSY:background-terminal' 'manual real preflight busy output' || return 1
 
-  local send_count
-  send_count="$(grep -c 'fake-send %1 Continue the assigned work.' "$FAKE_LOG")"
-  if [[ "$send_count" != "1" ]]; then
-    printf 'ASSERT FAIL manual duplicate prompt suppression\nexpected send_count=1 actual=%s\nlog:\n%s\n' "$send_count" "$(cat "$FAKE_LOG")" >&2
-    return 1
-  fi
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-send %1' 'manual real preflight blocked send' || return 1
 }
 
 test_manual_ping_prioritizes_dirty_worktree_recovery() {
@@ -1282,29 +1330,6 @@ test_manual_ping_rechecks_before_dirty_worktree_send() {
   assert_not_contains "$command_log" 'fake-send %1' 'manual dirty recheck prevented send' || return 1
 }
 
-test_manual_ping_suppresses_duplicate_dirty_worktree_prompt() {
-  setup_fake_env
-
-  USE_REAL_TERMINAL_MODE_GUARD=1
-  export USE_REAL_TERMINAL_MODE_GUARD
-  set_git_status $' M src/app.tsx\n M src/test.ts'
-
-  run_cmd run_manual_ping nixelo
-  assert_status "$RUN_STATUS" 0 "manual ping first dirty prompt send" || return 1
-
-  run_cmd run_manual_ping nixelo
-
-  assert_status "$RUN_STATUS" 0 "manual ping duplicate dirty prompt suppression" || return 1
-  assert_contains "$RUN_OUTPUT" 'NOOP:repeat-suppressed session=nixelo' 'duplicate dirty prompt suppressed output' || return 1
-
-  local send_count
-  send_count="$(grep -c 'blocked by 2 uncommitted changes on branch' "$FAKE_LOG")"
-  if [[ "$send_count" != "1" ]]; then
-    printf 'ASSERT FAIL manual duplicate dirty prompt suppression\nexpected send_count=1 actual=%s\nlog:\n%s\n' "$send_count" "$(cat "$FAKE_LOG")" >&2
-    return 1
-  fi
-}
-
 test_agent_ping_prioritizes_dirty_worktree_recovery() {
   setup_fake_env
 
@@ -1337,6 +1362,45 @@ test_agent_ping_rechecks_before_send() {
   local command_log
   command_log="$(cat "$FAKE_LOG")"
   assert_not_contains "$command_log" 'fake-send %1' 'agent final recheck prevented send' || return 1
+}
+
+test_agent_ping_real_preflight_sends_on_idle_footer() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  USE_REAL_TERMINAL_CLASSIFIER=1
+  export USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'Completed response block\n\n  ready footer · ~/Desktop/nixelo\n'
+
+  run_cmd run_agent_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "agent real preflight idle send" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT role=implementer session=nixelo' 'agent real preflight send output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux set-buffer -b' 'agent real preflight used paste buffer' || return 1
+  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'agent real preflight pasted prompt' || return 1
+}
+
+test_agent_ping_real_preflight_blocks_background_wait() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  USE_REAL_TERMINAL_CLASSIFIER=1
+  export USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'• background terminal is still running\n\n  ready footer · ~/Desktop/nixelo\n'
+
+  run_cmd run_agent_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "agent real preflight busy noop" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy role=implementer session=nixelo state=BUSY:background-terminal' 'agent real preflight busy output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-send %1' 'agent real preflight blocked send' || return 1
 }
 
 test_prci_ping_reports_busy_noop() {
@@ -1399,6 +1463,42 @@ test_prci_ping_runs_dispatch_script() {
 
   assert_status "$RUN_STATUS" 0 "prci ping dispatch" || return 1
   assert_contains "$RUN_OUTPUT" 'PR-CI: checks green and comments resolved' 'prci dispatch output' || return 1
+}
+
+test_prci_ping_real_preflight_runs_dispatch_on_idle_footer() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  USE_REAL_TERMINAL_CLASSIFIER=1
+  export USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'Completed response block\n\n  ready footer · ~/Desktop/nixelo\n'
+  FAKE_PRCI_DISPATCH_OUTPUT='checks green and comments resolved'
+  export FAKE_PRCI_DISPATCH_OUTPUT
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci real preflight idle dispatch" || return 1
+  assert_contains "$RUN_OUTPUT" 'PR-CI: checks green and comments resolved' 'prci real preflight dispatch output' || return 1
+}
+
+test_prci_ping_real_preflight_blocks_background_wait() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  USE_REAL_TERMINAL_CLASSIFIER=1
+  export USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'• Waited for background terminal · pnpm test\n\n  ready footer · ~/Desktop/nixelo\n'
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci real preflight busy noop" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:background-terminal' 'prci real preflight busy output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_not_contains "$command_log" 'fake-prci-dispatch.sh' 'prci real preflight blocked dispatch' || return 1
 }
 
 test_prci_dispatch_pushes_ahead_branch_first() {
@@ -1464,7 +1564,45 @@ test_starthub_prci_dispatch_green_noops_without_review_issues() {
   run_cmd run_prci_dispatch_starthub
 
   assert_status "$RUN_STATUS" 0 "starthub prci green noop" || return 1
-  assert_contains "$RUN_OUTPUT" 'NOOP:ci-green — all checks passing, done-done handled by heartbeat' 'starthub green noop output' || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:ci-green — all checks passing, no unresolved review issues' 'starthub green noop output' || return 1
+}
+
+test_starthub_prci_dispatch_green_fixes_unresolved_threads() {
+  setup_fake_env
+
+  set_git_branch 'feature-shells'
+  FAKE_GH_OPEN_PR='77'
+  FAKE_GH_PR_CHECKS=$'Unit pass\nPlaywright pass'
+  FAKE_GH_GRAPHQL_RESULT='2'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS FAKE_GH_GRAPHQL_RESULT
+
+  run_cmd run_prci_dispatch_starthub
+
+  assert_status "$RUN_STATUS" 0 "starthub prci green review issues" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: CI green but review issues found (2 threads, 0 new human comments), dispatched /fix-pr-comments' 'starthub green review issues output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'fake-send %1 /fix-pr-comments' 'starthub green review issues dispatched' || return 1
+}
+
+test_starthub_prci_dispatch_pending_fixes_changes_requested() {
+  setup_fake_env
+
+  set_git_branch 'feature-shells'
+  FAKE_GH_OPEN_PR='77'
+  FAKE_GH_PR_CHECKS=$'Unit pending'
+  FAKE_GH_REVIEW_DECISION='CHANGES_REQUESTED'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION
+
+  run_cmd run_prci_dispatch_starthub
+
+  assert_status "$RUN_STATUS" 0 "starthub prci pending changes requested" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: CI pending but review issues found (0 threads, 0 new human comments), dispatched /fix-pr-comments' 'starthub pending review issues output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'fake-send %1 /fix-pr-comments' 'starthub pending review issues dispatched' || return 1
 }
 
 test_prci_dispatch_reports_push_failure() {
@@ -1489,7 +1627,7 @@ test_prci_dispatch_escalates_stalled_loop_with_ci_details() {
   FAKE_GH_RUN_ID='12345'
   FAKE_GH_RUN_LOG='error TS2345: type mismatch'
   export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS FAKE_GH_RUN_ID FAKE_GH_RUN_LOG
-  set_tmux_pane_content '/fix-pr-comments'
+  set_tmux_pane_content 'previous summary block'
 
   run_cmd run_prci_dispatch_nixelo
   assert_status "$RUN_STATUS" 0 "prci dispatch loop warmup 1" || return 1
@@ -1530,6 +1668,42 @@ test_prci_dispatch_alerts_human_after_repeated_stall() {
 
   assert_status "$RUN_STATUS" 0 "prci dispatch human alert" || return 1
   assert_contains "$RUN_OUTPUT" 'BLOCKED:alerted-human' 'human alert output' || return 1
+}
+
+test_prci_common_repastes_when_command_only_in_history() {
+  setup_fake_env
+
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'opencode'
+  set_tmux_cursor_y '40'
+  set_tmux_pane_content $'Usage:\n- /fix-pr-comments - current branch\n- /fix-pr-comments 1570 - specific PR\n\n  ready footer · ~/Desktop/StartHub\n'
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; send_command '/fix-pr-comments'"
+
+  assert_status "$RUN_STATUS" 0 "prci common history repaste" || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux set-buffer -b' 'prci common repasted command from history state' || return 1
+  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common pasted command from history state' || return 1
+}
+
+test_prci_common_submits_when_command_buffered_at_prompt() {
+  setup_fake_env
+
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'opencode'
+  set_tmux_cursor_y '2'
+  set_tmux_pane_content $'  notes\n  /fix-pr-comments\n\n  ready footer · ~/Desktop/StartHub\n'
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; send_command '/fix-pr-comments'"
+
+  assert_status "$RUN_STATUS" 0 "prci common prompt submit" || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux send-keys -t %1 Enter' 'prci common submitted buffered command' || return 1
+  assert_not_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common did not repaste buffered command' || return 1
 }
 
 test_terminal_classifier_rejects_shell_only() {
@@ -1574,6 +1748,80 @@ test_terminal_classifier_reports_busy_gutter_queued() {
 
   assert_status "$RUN_STATUS" 0 "classifier busy gutter queued" || return 1
   assert_contains "$RUN_OUTPUT" 'BUSY:queued' 'gutter queued classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_background_terminal_wait() {
+  setup_fake_env
+
+  set_tmux_pane_content $'• Waited for background terminal · pnpm --filter @app/backend test\n\n  ready footer · ~/Desktop/StartHub\n'
+  set_tmux_pane_command 'node'
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal starthub"
+
+  assert_status "$RUN_STATUS" 0 "classifier background terminal wait" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:background-terminal' 'background terminal wait classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_background_terminal_running() {
+  setup_fake_env
+
+  set_tmux_pane_content $'• background terminal is still running\n\n  ready footer · ~/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier background terminal running" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:background-terminal' 'background terminal running classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_waiting_for_background_terminal() {
+  setup_fake_env
+
+  set_tmux_pane_content $'• Waiting for background terminal · pnpm test\n\n  ready footer · ~/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier waiting for background terminal" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:background-terminal' 'waiting for background terminal classification' || return 1
+}
+
+test_terminal_classifier_reports_busy_tail_work_indicator() {
+  setup_fake_env
+
+  set_tmux_cursor_y '80'
+  set_tmux_pane_content $'Completed output block\n• Working (6m 58s • esc to interrupt)\n\n  ready footer · ~/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier tail work indicator" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:work-indicator' 'tail work indicator classification' || return 1
+}
+
+test_terminal_classifier_ignores_stale_background_wait_outside_recent_tail() {
+  setup_fake_env
+
+  set_tmux_pane_content $'• Waited for background terminal · pnpm test\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\n\n  ready footer · ~/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier stale background wait ignored" || return 1
+  assert_contains "$RUN_OUTPUT" 'IDLE:static-ready-ui' 'stale background wait ignored classification' || return 1
+}
+
+test_terminal_classifier_ignores_stale_work_marker_outside_recent_tail() {
+  setup_fake_env
+
+  set_tmux_pane_content $'• Working (6m 58s • esc to interrupt)\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n\n  ready footer · ~/Desktop/nixelo\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier stale work marker ignored" || return 1
+  assert_contains "$RUN_OUTPUT" 'IDLE:static-ready-ui' 'stale work marker ignored classification' || return 1
 }
 
 test_terminal_classifier_reports_stuck_without_prompt() {
@@ -1852,27 +2100,41 @@ main() {
   run_test 'terminal automation rejects stuck noop verification' test_terminal_automation_rejects_stuck_terminal
   run_test 'manual ping reports busy noop' test_manual_ping_reports_busy_noop
   run_test 'manual ping sends prompt without todo tracking' test_manual_ping_sends_prompt_without_todo_tracking
-  run_test 'manual ping suppresses duplicate prompt within cooldown' test_manual_ping_suppresses_duplicate_prompt_within_cooldown
+  run_test 'manual ping real preflight sends on idle footer' test_manual_ping_real_preflight_sends_on_idle_footer
+  run_test 'manual ping real preflight blocks background wait' test_manual_ping_real_preflight_blocks_background_wait
   run_test 'manual ping prioritizes dirty worktree recovery' test_manual_ping_prioritizes_dirty_worktree_recovery
   run_test 'manual ping rechecks before dirty-worktree send' test_manual_ping_rechecks_before_dirty_worktree_send
-  run_test 'manual ping suppresses duplicate dirty-worktree prompt' test_manual_ping_suppresses_duplicate_dirty_worktree_prompt
   run_test 'agent ping prioritizes dirty worktree recovery' test_agent_ping_prioritizes_dirty_worktree_recovery
   run_test 'agent ping rechecks before send' test_agent_ping_rechecks_before_send
+  run_test 'agent ping real preflight sends on idle footer' test_agent_ping_real_preflight_sends_on_idle_footer
+  run_test 'agent ping real preflight blocks background wait' test_agent_ping_real_preflight_blocks_background_wait
   run_test 'prci ping reports busy noop' test_prci_ping_reports_busy_noop
   run_test 'prci ping prioritizes dirty worktree recovery' test_prci_ping_prioritizes_dirty_worktree_recovery
   run_test 'prci ping rechecks before dirty-worktree send' test_prci_ping_rechecks_before_dirty_worktree_send
   run_test 'prci ping runs dispatch script' test_prci_ping_runs_dispatch_script
+  run_test 'prci ping real preflight runs dispatch on idle footer' test_prci_ping_real_preflight_runs_dispatch_on_idle_footer
+  run_test 'prci ping real preflight blocks background wait' test_prci_ping_real_preflight_blocks_background_wait
   run_test 'prci dispatch pushes ahead branch first' test_prci_dispatch_pushes_ahead_branch_first
   run_test 'prci dispatch fixes review issues even when ci is green' test_prci_dispatch_fixes_review_issues_even_when_ci_green
   run_test 'starthub prci dispatch opens pr when missing' test_starthub_prci_dispatch_opens_pr_when_missing
   run_test 'starthub prci dispatch green noops without review issues' test_starthub_prci_dispatch_green_noops_without_review_issues
+  run_test 'starthub prci dispatch green fixes unresolved threads' test_starthub_prci_dispatch_green_fixes_unresolved_threads
+  run_test 'starthub prci dispatch pending fixes changes requested' test_starthub_prci_dispatch_pending_fixes_changes_requested
   run_test 'prci dispatch reports push failure' test_prci_dispatch_reports_push_failure
   run_test 'prci dispatch escalates stalled loop with ci details' test_prci_dispatch_escalates_stalled_loop_with_ci_details
   run_test 'prci dispatch alerts human after repeated stall' test_prci_dispatch_alerts_human_after_repeated_stall
+  run_test 'prci common repastes when command only in history' test_prci_common_repastes_when_command_only_in_history
+  run_test 'prci common submits when command buffered at prompt' test_prci_common_submits_when_command_buffered_at_prompt
   run_test 'terminal classifier rejects shell-only pane' test_terminal_classifier_rejects_shell_only
   run_test 'terminal classifier reports busy runner' test_terminal_classifier_reports_busy_runner
   run_test 'terminal classifier reports busy queued' test_terminal_classifier_reports_busy_queued
   run_test 'terminal classifier reports busy gutter queued' test_terminal_classifier_reports_busy_gutter_queued
+  run_test 'terminal classifier reports busy background terminal wait' test_terminal_classifier_reports_busy_background_terminal_wait
+  run_test 'terminal classifier reports busy background terminal running' test_terminal_classifier_reports_busy_background_terminal_running
+  run_test 'terminal classifier reports busy waiting for background terminal' test_terminal_classifier_reports_busy_waiting_for_background_terminal
+  run_test 'terminal classifier reports busy tail work indicator' test_terminal_classifier_reports_busy_tail_work_indicator
+  run_test 'terminal classifier ignores stale background wait outside recent tail' test_terminal_classifier_ignores_stale_background_wait_outside_recent_tail
+  run_test 'terminal classifier ignores stale work marker outside recent tail' test_terminal_classifier_ignores_stale_work_marker_outside_recent_tail
   run_test 'terminal classifier reports stuck without prompt' test_terminal_classifier_reports_stuck_without_prompt
   run_test 'terminal classifier accepts generic footer ready ui' test_terminal_classifier_accepts_generic_footer_ready_ui
   run_test 'terminal classifier accepts absolute path footer ready ui' test_terminal_classifier_accepts_absolute_path_footer_ready_ui

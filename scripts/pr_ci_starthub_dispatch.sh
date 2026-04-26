@@ -122,12 +122,35 @@ check_ci_status() {
 CI_STATUS="$(check_ci_status)"
 
 case "$CI_STATUS" in
-  green)
-    echo "NOOP:ci-green — all checks passing, done-done handled by heartbeat"
-    exit 0
-    ;;
-  pending)
-    echo "NOOP:ci-pending — checks still running"
+  green|pending)
+    # Even if CI is green/pending, check for unresolved review comments.
+    cd "$REPO_DIR"
+    pr_number="$(gh pr list --head "$(git branch --show-current)" --json number -q '.[0].number' 2>/dev/null || echo "")"
+    if [[ -n "$pr_number" ]]; then
+      review_decision=$(gh pr view "$pr_number" --json reviewDecision -q '.reviewDecision' 2>/dev/null || echo "NONE")
+
+      unresolved_threads="$(count_unresolved_review_threads "$pr_number")"
+      unresolved_threads=${unresolved_threads:-0}
+      new_human_comments="$(count_new_human_review_comments "$pr_number")"
+      new_human_comments=${new_human_comments:-0}
+
+      if [[ "$unresolved_threads" -gt 0 || "$new_human_comments" -gt 0 || "$review_decision" == "CHANGES_REQUESTED" ]]; then
+        dismiss_rating_prompt
+        if is_terminal_idle; then
+          send_command "/fix-pr-comments"
+          echo "OK: CI ${CI_STATUS} but review issues found (${unresolved_threads} threads, ${new_human_comments} new human comments), dispatched /fix-pr-comments"
+        else
+          echo "NOOP:terminal-busy — review issues found but terminal working"
+        fi
+        exit 0
+      fi
+    fi
+
+    if [[ "$CI_STATUS" == "pending" ]]; then
+      echo "NOOP:ci-pending — checks still running, no unresolved issues"
+    else
+      echo "NOOP:ci-green — all checks passing, no unresolved review issues"
+    fi
     exit 0
     ;;
   no-pr)

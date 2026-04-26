@@ -23,6 +23,7 @@ set -euo pipefail
 # ── Tuning ──────────────────────────────────────────────────────────
 CONTENT_PROBE_DELAY="${CONTENT_PROBE_DELAY:-2}"  # seconds between snapshots
 SEND_STABILITY_DELAY="${SEND_STABILITY_DELAY:-3}"
+RECENT_TAIL_CONTEXT_LINES="${RECENT_TAIL_CONTEXT_LINES:-5}"
 
 # Volatile patterns stripped before content-diff (timers, progress, counters)
 VOLATILE_STRIP='/(Working \(|Waiting for|esc to interrupt|% left|background terminal|·.*running|Worked for|Messages to be submitted)/d'
@@ -32,6 +33,11 @@ RUNNER_RE='(pnpm|npm|npx|tsx|playwright|vitest|jest|tsc|pytest|python|gradle|mvn
 
 # Queue marker patterns (agnostic across Codex/Claude/Gemini)
 QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued messages|^QUEUED[[:space:]]*$)'
+
+# Explicit waiting/running UI markers that mean the harness is still busy even
+# when the footer path is visible and the process tree is quiet.
+BACKGROUND_WAIT_RE='(Waiting for background terminal|Waited for background terminal|background terminal.*running)'
+TAIL_WORK_RE='(Working \(|esc to interrupt)'
 
 # Prompt glyphs
 # OpenCode uses a box-drawing gutter for the live input row.
@@ -91,9 +97,40 @@ _pane_path() {
   tmux display-message -p -t "$1" '#{pane_current_path}' 2>/dev/null || true
 }
 
+_recent_nonempty_tail() {
+  local text="$1"
+  printf '%s\n' "$text" | awk 'NF { print }' | tail -n "$RECENT_TAIL_CONTEXT_LINES"
+}
+
+_recent_marker_near_tail() {
+  local text="$1"
+  local pattern="$2"
+  local max_distance_from_end="$3"
+  local recent_tail total_lines match_line
+
+  recent_tail=$(_recent_nonempty_tail "$text")
+  [[ -n "$recent_tail" ]] || return 1
+
+  total_lines=$(printf '%s\n' "$recent_tail" | awk 'END { print NR }')
+  match_line=$(printf '%s\n' "$recent_tail" | nl -ba | grep -E "$pattern" | tail -1 | awk '{print $1}' || true)
+
+  [[ -n "$match_line" ]] || return 1
+  (( total_lines - match_line <= max_distance_from_end ))
+}
+
 _has_queue_marker() {
   local text="$1"
   printf '%s\n' "$text" | tail -30 | sed -E 's/^[[:space:]│┃╎╏▏▎▍▌▋▊▉█▐▕]+//' | grep -Eiq "$QUEUE_RE"
+}
+
+_has_recent_background_wait() {
+  local text="$1"
+  _recent_marker_near_tail "$text" "$BACKGROUND_WAIT_RE" 2
+}
+
+_has_recent_tail_work_marker() {
+  local text="$1"
+  _recent_marker_near_tail "$text" "$TAIL_WORK_RE" 3
 }
 
 _content_hash() {
@@ -208,6 +245,19 @@ classify_terminal() {
   # ── Layer 2: Queue markers (text-based but high confidence) ──
   if _has_queue_marker "$text"; then
     echo "BUSY:queued"
+    return
+  fi
+
+  # ── Layer 2b: Explicit wait/running markers in the recent tail ──
+  # Some harnesses show a static footer path while still waiting on a
+  # background terminal or active work item. Those states are busy, not idle.
+  if _has_recent_background_wait "$text"; then
+    echo "BUSY:background-terminal"
+    return
+  fi
+
+  if _has_recent_tail_work_marker "$text"; then
+    echo "BUSY:work-indicator"
     return
   fi
 

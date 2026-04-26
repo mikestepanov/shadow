@@ -4,8 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCODECTL="${OPENCODECTL:-${SCRIPT_DIR}/scripts/opencodectl}"
 TERMINAL_MODE_GUARD="${TERMINAL_MODE_GUARD:-${SCRIPT_DIR}/scripts/terminal_mode_guard.sh}"
-MANUAL_PING_STATE_DIR="${MANUAL_PING_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shadow/manual-terminal-ping}"
-MANUAL_PING_REPEAT_COOLDOWN_SECONDS="${MANUAL_PING_REPEAT_COOLDOWN_SECONDS:-1800}"
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <nixelo|starthub>" >&2
@@ -51,51 +49,6 @@ report_preflight_failure() {
   esac
 }
 
-message_fingerprint() {
-  printf '%s' "$1" | cksum | cut -d' ' -f1
-}
-
-manual_ping_state_file() {
-  printf '%s/%s.last' "$MANUAL_PING_STATE_DIR" "$1"
-}
-
-manual_repeat_suppressed() {
-  local session_name="$1"
-  local text="$2"
-  local state_file current_fingerprint now last_timestamp last_fingerprint age
-
-  state_file="$(manual_ping_state_file "$session_name")"
-  current_fingerprint="$(message_fingerprint "$text")"
-  now="$(date +%s)"
-
-  if [[ ! -f "$state_file" ]]; then
-    return 1
-  fi
-
-  read -r last_timestamp last_fingerprint < "$state_file" || return 1
-  if [[ -z "${last_timestamp:-}" || -z "${last_fingerprint:-}" || "$last_fingerprint" != "$current_fingerprint" ]]; then
-    return 1
-  fi
-
-  age=$((now - last_timestamp))
-  if (( age < 0 || age >= MANUAL_PING_REPEAT_COOLDOWN_SECONDS )); then
-    return 1
-  fi
-
-  printf 'NOOP:repeat-suppressed session=%s age=%ss cooldown=%ss\n' "$session_name" "$age" "$MANUAL_PING_REPEAT_COOLDOWN_SECONDS"
-  return 0
-}
-
-record_manual_send() {
-  local session_name="$1"
-  local text="$2"
-  local state_file
-
-  mkdir -p "$MANUAL_PING_STATE_DIR"
-  state_file="$(manual_ping_state_file "$session_name")"
-  printf '%s %s\n' "$(date +%s)" "$(message_fingerprint "$text")" > "$state_file"
-}
-
 if ! terminal_send_preflight "$session" "$workdir"; then
   report_preflight_failure
   exit 0
@@ -128,16 +81,10 @@ if [[ "$dirty_count" != "0" ]]; then
 
   target="$TERMINAL_PREFLIGHT_PANE"
   dirty_msg="$(dirty_worktree_recovery_prompt manual "$session" "$workdir" "$dirty_count")"
-  if manual_repeat_suppressed "$session" "$dirty_msg"; then
-    exit 0
-  fi
-
   send_tmux_text_enter "$target" "$dirty_msg" || {
     echo "BLOCKED_HUMAN: prompt-not-ready-for-manual-dirty-worktree session=${session}"
     exit 0
   }
-
-  record_manual_send "$session" "$dirty_msg"
 
   echo "SENT manual session=${session} mode=dirty-worktree changes=${dirty_count}"
   exit 0
@@ -150,15 +97,9 @@ fi
 
 target="$TERMINAL_PREFLIGHT_PANE"
 
-if manual_repeat_suppressed "$session" "$msg"; then
-  exit 0
-fi
-
 send_tmux_text_enter "$target" "$msg" || {
   echo "BLOCKED_HUMAN: prompt-not-ready-for-manual-ping session=${session}"
   exit 0
 }
-
-record_manual_send "$session" "$msg"
 
 echo "SENT manual session=${session} msg=${msg:0:50}..."

@@ -145,6 +145,24 @@ get_pane_target() {
   tmux list-panes -t "$TMUX_SESSION" -F '#{pane_id}' 2>/dev/null | head -n1
 }
 
+command_buffered_near_cursor() {
+  local pane_target="$1"
+  local cmd="$2"
+  local cursor_y start end window_text
+
+  [[ "$cmd" == *$'\n'* ]] && return 1
+
+  cursor_y="$(tmux display-message -p -t "$pane_target" '#{cursor_y}' 2>/dev/null || echo "")"
+  [[ "$cursor_y" =~ ^[0-9]+$ ]] || return 1
+
+  start=$((cursor_y - 1))
+  end=$((cursor_y + 1))
+  (( start < 1 )) && start=1
+
+  window_text="$(tmux capture-pane -t "$pane_target" -p 2>/dev/null | sed -n "${start},${end}p")"
+  printf '%s\n' "$window_text" | sed -E 's/^[[:space:]│┃╎╏▏▎▍▌▋▊▉█▐▕>›❯]+//; s/[[:space:]]+$//' | grep -Fqx -- "$cmd"
+}
+
 dismiss_rating_prompt() {
   local pane_text
   local pane_target
@@ -163,7 +181,7 @@ is_terminal_idle() {
 
 send_command() {
   local cmd="$1"
-  local pane_target pane_text
+  local pane_target
 
   if ! terminal_send_preflight "$TMUX_SESSION" "$REPO_DIR"; then
     return 1
@@ -171,8 +189,7 @@ send_command() {
 
   pane_target="$TERMINAL_PREFLIGHT_PANE"
 
-  pane_text="$(get_pane_text)"
-  if printf '%s\n' "$pane_text" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -Fqx -- "$cmd"; then
+  if command_buffered_near_cursor "$pane_target" "$cmd"; then
     submit_tmux_enter "$pane_target"
     return 0
   fi

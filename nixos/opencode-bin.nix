@@ -2,11 +2,11 @@
 
 stdenvNoCC.mkDerivation rec {
   pname = "opencode";
-  version = "1.3.15";
+  version = "1.14.25";
 
   src = fetchurl {
     url = "https://github.com/anomalyco/opencode/releases/download/v${version}/opencode-linux-x64.tar.gz";
-    hash = "sha256-7plxyuvcHasaP2A0nyMGh16Xp933E2KM+JuCwoKA6XE=";
+    hash = "sha256-ZULblz+/QEcH0nXYJPzX7vIKgAN4gRTrhQZ0Atr3MNs=";
   };
 
   dontUnpack = true;
