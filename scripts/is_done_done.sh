@@ -70,7 +70,7 @@ count_commit_check_suites() {
       query='[.check_suites[]? | (.conclusion // "") | ascii_upcase | select(.=="FAILURE" or .=="FAILED" or .=="ERROR" or .=="TIMED_OUT" or .=="CANCELLED" or .=="ACTION_REQUIRED" or .=="STALE" or .=="STARTUP_FAILURE")] | length'
       ;;
     pending)
-      query='[.check_suites[]? | (.status // "") | ascii_upcase | select(.=="PENDING" or .=="IN_PROGRESS" or .=="QUEUED" or .=="REQUESTED" or .=="WAITING")] | length'
+      query='[.check_suites[]? | select((.latest_check_runs_count // 0) > 0) | (.status // "") | ascii_upcase | select(.=="PENDING" or .=="IN_PROGRESS" or .=="QUEUED" or .=="REQUESTED" or .=="WAITING")] | length'
       ;;
     *)
       echo "ERR"
