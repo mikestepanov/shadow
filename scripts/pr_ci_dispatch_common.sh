@@ -21,6 +21,7 @@ OPENCODECTL="${OPENCODECTL:-$HOME/Desktop/shadow/scripts/opencodectl}"
 STATE_FILE="$HOME/Desktop/shadow/heartbeat-dispatch-state.json"
 MAX_IDENTICAL="${MAX_IDENTICAL:-3}"
 GH="$(command -v gh)"
+SEND_COMMAND_RESULT=""
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -182,8 +183,12 @@ is_terminal_idle() {
 send_command() {
   local cmd="$1"
   local pane_target
+  local verify_delay
+
+  SEND_COMMAND_RESULT=""
 
   if ! terminal_send_preflight "$TMUX_SESSION" "$REPO_DIR"; then
+    SEND_COMMAND_RESULT="preflight-failed"
     return 1
   fi
 
@@ -191,10 +196,41 @@ send_command() {
 
   if command_buffered_near_cursor "$pane_target" "$cmd"; then
     submit_tmux_enter "$pane_target"
+    SEND_COMMAND_RESULT="submitted-buffered"
     return 0
   fi
 
-  send_tmux_text_enter "$pane_target" "$cmd"
+  if ! send_tmux_text_enter "$pane_target" "$cmd"; then
+    SEND_COMMAND_RESULT="send-failed"
+    return 1
+  fi
+
+  SEND_COMMAND_RESULT="pasted"
+
+  if [[ "$cmd" != /* ]]; then
+    return 0
+  fi
+
+  verify_delay="${SLASH_COMMAND_SUBMIT_VERIFY_DELAY:-1}"
+  sleep "$verify_delay"
+
+  if ! command_buffered_near_cursor "$pane_target" "$cmd"; then
+    return 0
+  fi
+
+  submit_tmux_enter "$pane_target"
+  SEND_COMMAND_RESULT="retried-buffered"
+  sleep "$verify_delay"
+
+  if command_buffered_near_cursor "$pane_target" "$cmd"; then
+    SEND_COMMAND_RESULT="still-buffered"
+    return 1
+  fi
+}
+
+send_result_suffix() {
+  [[ -n "${SEND_COMMAND_RESULT:-}" ]] || return 0
+  printf ' (send:%s)' "$SEND_COMMAND_RESULT"
 }
 
 alert_telegram() {

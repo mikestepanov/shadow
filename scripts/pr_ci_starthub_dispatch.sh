@@ -137,8 +137,11 @@ case "$CI_STATUS" in
       if [[ "$unresolved_threads" -gt 0 || "$new_human_comments" -gt 0 || "$review_decision" == "CHANGES_REQUESTED" ]]; then
         dismiss_rating_prompt
         if is_terminal_idle; then
-          send_command "/fix-pr-comments"
-          echo "OK: CI ${CI_STATUS} but review issues found (${unresolved_threads} threads, ${new_human_comments} new human comments), dispatched /fix-pr-comments"
+          if send_command "/fix-pr-comments"; then
+            echo "OK: CI ${CI_STATUS} but review issues found (${unresolved_threads} threads, ${new_human_comments} new human comments), dispatched /fix-pr-comments$(send_result_suffix)"
+          else
+            echo "NOOP:send-failed — review issues found but terminal did not accept /fix-pr-comments$(send_result_suffix)"
+          fi
         else
           echo "NOOP:terminal-busy — review issues found but terminal working"
         fi
@@ -160,8 +163,11 @@ case "$CI_STATUS" in
     fi
     dismiss_rating_prompt
     if is_terminal_idle; then
-      send_command "/pr"
-      echo "OK: no open PR, dispatched /pr"
+      if send_command "/pr"; then
+        echo "OK: no open PR, dispatched /pr$(send_result_suffix)"
+      else
+        echo "NOOP:send-failed — needs /pr but terminal did not accept command$(send_result_suffix)"
+      fi
     else
       echo "NOOP:terminal-busy — needs /pr but terminal is working"
     fi
@@ -176,6 +182,9 @@ esac
 DEFAULT_CMD="$(get_smart_command)"
 
 if check_and_dispatch "$DEFAULT_CMD"; then
-  send_command "$DISPATCH_CMD"
-  echo "OK: dispatched to $TMUX_SESSION (CI: $CI_STATUS)"
+  if send_command "$DISPATCH_CMD"; then
+    echo "OK: dispatched to $TMUX_SESSION (CI: $CI_STATUS)$(send_result_suffix)"
+  else
+    echo "NOOP:send-failed — CI ${CI_STATUS}, terminal did not accept dispatch$(send_result_suffix)"
+  fi
 fi

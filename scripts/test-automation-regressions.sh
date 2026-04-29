@@ -276,6 +276,7 @@ pane_content_file="$state_dir/tmux_pane_content"
 pane_cmd_file="$state_dir/tmux_pane_command"
 pane_pid_file="$state_dir/tmux_pane_pid"
 cursor_y_file="$state_dir/tmux_cursor_y"
+send_keys_count_file="$state_dir/tmux_send_keys_count"
 
 command_name="${1:-}"
 case "$command_name" in
@@ -339,7 +340,25 @@ case "$command_name" in
     fi
     exit 0
     ;;
-  set-buffer|paste-buffer|send-keys)
+  set-buffer)
+    exit 0
+    ;;
+  paste-buffer)
+    if [[ -n "${FAKE_TMUX_PASTE_CONTENT:-}" ]]; then
+      printf '%s' "$FAKE_TMUX_PASTE_CONTENT" > "$pane_content_file"
+    fi
+    exit 0
+    ;;
+  send-keys)
+    count=0
+    if [[ -f "$send_keys_count_file" ]]; then
+      count="$(cat "$send_keys_count_file")"
+    fi
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$send_keys_count_file"
+    if [[ -n "${FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT:-}" && "$count" -ge "$FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT" ]]; then
+      printf '%s' "${FAKE_TMUX_AFTER_ENTER_CONTENT:-}" > "$pane_content_file"
+    fi
     exit 0
     ;;
   clear-history)
@@ -935,7 +954,7 @@ setup_fake_env() {
   export FAKE_PRCI_WORKDIR="$HOME/Desktop/nixelo"
   export FAKE_PRCI_DISPATCH_SCRIPT="$TEST_FAKE_PRCI_DISPATCH"
 
-  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
+  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT FAKE_TMUX_PASTE_CONTENT FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT FAKE_TMUX_AFTER_ENTER_CONTENT USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
 }
 
 terminal_mode_guard_for_test() {
@@ -1706,6 +1725,32 @@ test_prci_common_submits_when_command_buffered_at_prompt() {
   assert_not_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common did not repaste buffered command' || return 1
 }
 
+test_prci_common_retries_slash_command_left_buffered() {
+  setup_fake_env
+
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'opencode'
+  set_tmux_cursor_y '2'
+  set_tmux_pane_content $'  idle\n  ready footer · ~/Desktop/StartHub\n'
+  export FAKE_TMUX_PASTE_CONTENT=$'  idle\n  /fix-pr-comments\n\n  ready footer · ~/Desktop/StartHub\n'
+  export FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT='2'
+  export FAKE_TMUX_AFTER_ENTER_CONTENT=$'  submitted\n\n  ready footer · ~/Desktop/StartHub\n'
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; send_command '/fix-pr-comments'; printf 'result=%s\n' \"\$SEND_COMMAND_RESULT\""
+
+  assert_status "$RUN_STATUS" 0 "prci common slash retry" || return 1
+  assert_contains "$RUN_OUTPUT" 'result=retried-buffered' 'prci common slash retry result' || return 1
+
+  local command_log send_count
+  command_log="$(cat "$FAKE_LOG")"
+  send_count="$(grep -c 'tmux send-keys -t %1 Enter' "$FAKE_LOG" || true)"
+  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common slash retry pasted command' || return 1
+  if [[ "$send_count" != "2" ]]; then
+    printf 'ASSERT FAIL prci common slash retry enter count\nexpected=2 actual=%s\noutput:\n%s\n' "$send_count" "$command_log" >&2
+    return 1
+  fi
+}
+
 test_terminal_classifier_rejects_shell_only() {
   setup_fake_env
 
@@ -2125,6 +2170,7 @@ main() {
   run_test 'prci dispatch alerts human after repeated stall' test_prci_dispatch_alerts_human_after_repeated_stall
   run_test 'prci common repastes when command only in history' test_prci_common_repastes_when_command_only_in_history
   run_test 'prci common submits when command buffered at prompt' test_prci_common_submits_when_command_buffered_at_prompt
+  run_test 'prci common retries slash command left buffered' test_prci_common_retries_slash_command_left_buffered
   run_test 'terminal classifier rejects shell-only pane' test_terminal_classifier_rejects_shell_only
   run_test 'terminal classifier reports busy runner' test_terminal_classifier_reports_busy_runner
   run_test 'terminal classifier reports busy queued' test_terminal_classifier_reports_busy_queued
