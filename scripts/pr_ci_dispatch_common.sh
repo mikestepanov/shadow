@@ -213,19 +213,8 @@ send_command() {
 
   verify_delay="${SLASH_COMMAND_SUBMIT_VERIFY_DELAY:-1}"
   sleep "$verify_delay"
-
-  if ! command_buffered_near_cursor "$pane_target" "$cmd"; then
-    return 0
-  fi
-
   submit_tmux_enter "$pane_target"
-  SEND_COMMAND_RESULT="retried-buffered"
-  sleep "$verify_delay"
-
-  if command_buffered_near_cursor "$pane_target" "$cmd"; then
-    SEND_COMMAND_RESULT="still-buffered"
-    return 1
-  fi
+  SEND_COMMAND_RESULT="slash-double-enter"
 }
 
 send_result_suffix() {

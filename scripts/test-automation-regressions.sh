@@ -1725,28 +1725,28 @@ test_prci_common_submits_when_command_buffered_at_prompt() {
   assert_not_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common did not repaste buffered command' || return 1
 }
 
-test_prci_common_retries_slash_command_left_buffered() {
+test_prci_common_double_enters_slash_command_after_paste() {
   setup_fake_env
 
   set_tmux_pane_path "$HOME/Desktop/StartHub"
   set_tmux_pane_command 'opencode'
   set_tmux_cursor_y '2'
   set_tmux_pane_content $'  idle\n  ready footer · ~/Desktop/StartHub\n'
-  export FAKE_TMUX_PASTE_CONTENT=$'  idle\n  /fix-pr-comments\n\n  ready footer · ~/Desktop/StartHub\n'
+  export FAKE_TMUX_PASTE_CONTENT=$'  expanded command body\n\n  ready footer · ~/Desktop/StartHub\n'
   export FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT='2'
   export FAKE_TMUX_AFTER_ENTER_CONTENT=$'  submitted\n\n  ready footer · ~/Desktop/StartHub\n'
 
   run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; send_command '/fix-pr-comments'; printf 'result=%s\n' \"\$SEND_COMMAND_RESULT\""
 
-  assert_status "$RUN_STATUS" 0 "prci common slash retry" || return 1
-  assert_contains "$RUN_OUTPUT" 'result=retried-buffered' 'prci common slash retry result' || return 1
+  assert_status "$RUN_STATUS" 0 "prci common slash double enter" || return 1
+  assert_contains "$RUN_OUTPUT" 'result=slash-double-enter' 'prci common slash double enter result' || return 1
 
   local command_log send_count
   command_log="$(cat "$FAKE_LOG")"
   send_count="$(grep -c 'tmux send-keys -t %1 Enter' "$FAKE_LOG" || true)"
-  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common slash retry pasted command' || return 1
+  assert_contains "$command_log" 'tmux paste-buffer -d -b' 'prci common slash double enter pasted command' || return 1
   if [[ "$send_count" != "2" ]]; then
-    printf 'ASSERT FAIL prci common slash retry enter count\nexpected=2 actual=%s\noutput:\n%s\n' "$send_count" "$command_log" >&2
+    printf 'ASSERT FAIL prci common slash double enter count\nexpected=2 actual=%s\noutput:\n%s\n' "$send_count" "$command_log" >&2
     return 1
   fi
 }
@@ -2170,7 +2170,7 @@ main() {
   run_test 'prci dispatch alerts human after repeated stall' test_prci_dispatch_alerts_human_after_repeated_stall
   run_test 'prci common repastes when command only in history' test_prci_common_repastes_when_command_only_in_history
   run_test 'prci common submits when command buffered at prompt' test_prci_common_submits_when_command_buffered_at_prompt
-  run_test 'prci common retries slash command left buffered' test_prci_common_retries_slash_command_left_buffered
+  run_test 'prci common double-enters slash command after paste' test_prci_common_double_enters_slash_command_after_paste
   run_test 'terminal classifier rejects shell-only pane' test_terminal_classifier_rejects_shell_only
   run_test 'terminal classifier reports busy runner' test_terminal_classifier_reports_busy_runner
   run_test 'terminal classifier reports busy queued' test_terminal_classifier_reports_busy_queued
