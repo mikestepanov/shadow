@@ -23,6 +23,22 @@ fi
 
 source "$TERMINAL_MODE_GUARD"
 
+if answer_automatable_opencode_question "$session" "$workdir"; then
+  echo "PR-CI: SENT question-answer session=${session} reason=${TERMINAL_QUESTION_REASON}"
+  exit 0
+else
+  question_status=$?
+  if [[ "$question_status" == "2" ]]; then
+    echo "BLOCKED_HUMAN: question-unhandled session=${session} reason=${TERMINAL_QUESTION_REASON}"
+    exit 0
+  fi
+fi
+
+if [[ "${ANSWER_QUESTION_ONLY:-0}" == "1" ]]; then
+  echo "NOOP:question-none session=${session} reason=${TERMINAL_QUESTION_REASON}"
+  exit 0
+fi
+
 report_preflight_failure() {
   local note="${1:-}"
   case "$TERMINAL_PREFLIGHT_REASON" in

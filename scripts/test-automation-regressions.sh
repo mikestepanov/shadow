@@ -721,6 +721,9 @@ TERMINAL_PREFLIGHT_STATE=""
 TERMINAL_PREFLIGHT_REASON=""
 TERMINAL_PREFLIGHT_CURRENT_PATH=""
 TERMINAL_PREFLIGHT_EXPECTED_PATH=""
+TERMINAL_QUESTION_PANE=""
+TERMINAL_QUESTION_STATUS=""
+TERMINAL_QUESTION_REASON=""
 
 next_preflight_call_number() {
   local count_file="${FAKE_STATE_DIR:?}/fake_preflight_call_count"
@@ -810,6 +813,31 @@ send_tmux_text_enter() {
 submit_tmux_enter() {
   printf 'fake-enter %s\n' "$*" >> "${FAKE_LOG:?}"
   return 0
+}
+
+answer_automatable_opencode_question() {
+  TERMINAL_QUESTION_PANE="%1"
+  case "${FAKE_QUESTION_RESULT:-none}" in
+    answered)
+      TERMINAL_QUESTION_STATUS="answered"
+      TERMINAL_QUESTION_REASON="${FAKE_QUESTION_REASON:-custom-autonomy-answer}"
+      return 0
+      ;;
+    blocked)
+      TERMINAL_QUESTION_STATUS="blocked"
+      TERMINAL_QUESTION_REASON="${FAKE_QUESTION_REASON:-unhandled-question}"
+      return 2
+      ;;
+    none)
+      TERMINAL_QUESTION_STATUS="none"
+      TERMINAL_QUESTION_REASON="${FAKE_QUESTION_REASON:-no-question}"
+      return 1
+      ;;
+  esac
+
+  TERMINAL_QUESTION_STATUS="none"
+  TERMINAL_QUESTION_REASON="unknown-fake-question-result"
+  return 1
 }
 
 repo_dirty_worktree_count() {
@@ -961,7 +989,7 @@ setup_fake_env() {
   export FAKE_PRCI_WORKDIR="$HOME/Desktop/nixelo"
   export FAKE_PRCI_DISPATCH_SCRIPT="$TEST_FAKE_PRCI_DISPATCH"
 
-  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT FAKE_TMUX_PASTE_CONTENT FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT FAKE_TMUX_AFTER_ENTER_CONTENT USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
+  unset FAKE_GH_OPEN_PR FAKE_GH_MERGED_PR FAKE_GH_MERGE_EXIT FAKE_GH_PR_STATE FAKE_GH_PR_CHECKS FAKE_GH_REVIEW_DECISION FAKE_GH_REPO_SLUG FAKE_GH_GRAPHQL_RESULT FAKE_GH_API_RESULT FAKE_GH_RUN_ID FAKE_GH_RUN_LOG FAKE_GH_HEAD_SHA FAKE_GH_CHANGES_REQUESTED_COUNT FAKE_GH_STATUSCHECK_FAILING_COUNT FAKE_GH_STATUSCHECK_PENDING_COUNT FAKE_GH_CHECK_SUITES_FAILING_COUNT FAKE_GH_CHECK_SUITES_PENDING_COUNT FAKE_GH_COMMIT_STATUS_FAILING_COUNT FAKE_GH_COMMIT_STATUS_PENDING_COUNT FAKE_DONE_DONE_RESULT FAKE_DONE_DONE_OUTPUT FAKE_PREFLIGHT_RESULT FAKE_PREFLIGHT_STATE FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE FAKE_QUESTION_RESULT FAKE_QUESTION_REASON FAKE_DATE_BRANCH FAKE_DATE_SINCE FAKE_CLASSIFIER_STATE FAKE_PRCI_DISPATCH_OUTPUT FAKE_TMUX_PASTE_CONTENT FAKE_TMUX_CLEAR_AFTER_SEND_KEYS_COUNT FAKE_TMUX_AFTER_ENTER_CONTENT USE_REAL_TERMINAL_MODE_GUARD USE_REAL_TERMINAL_CLASSIFIER FAKE_GIT_AHEAD_COUNT FAKE_GIT_PUSH_EXIT FAKE_GIT_LOG_OUTPUT
 }
 
 terminal_mode_guard_for_test() {
@@ -1110,6 +1138,18 @@ run_prci_ping() {
     FAKE_PRCI_DISPATCH_SCRIPT="$FAKE_PRCI_DISPATCH_SCRIPT" \
     FAKE_PRCI_DISPATCH_OUTPUT="${FAKE_PRCI_DISPATCH_OUTPUT:-checks green}" \
     bash "$ROOT_DIR/scripts/prci-terminal-ping" "$@"
+}
+
+run_question_guard() {
+  local session="$1"
+  local expected_path="$2"
+  env \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    TERMINAL_CLASSIFIER="$(terminal_classifier_for_test)" \
+    FAKE_LOG="$FAKE_LOG" \
+    FAKE_STATE_DIR="$FAKE_STATE_DIR" \
+    bash -c 'set -euo pipefail; source "$1"; answer_automatable_opencode_question "$2" "$3"; printf "status=%s reason=%s\n" "$TERMINAL_QUESTION_STATUS" "$TERMINAL_QUESTION_REASON"' _ "$ROOT_DIR/scripts/terminal_mode_guard.sh" "$session" "$expected_path"
 }
 
 run_prci_dispatch_nixelo() {
@@ -1321,6 +1361,97 @@ test_manual_ping_real_preflight_blocks_background_wait() {
   assert_not_contains "$command_log" 'fake-send %1' 'manual real preflight blocked send' || return 1
 }
 
+test_manual_ping_answers_starthub_question_with_custom_policy() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  FAKE_MANUAL_WORKDIR="$HOME/Desktop/StartHub"
+  FAKE_MANUAL_PROMPT='Continue the assigned work.'
+  export FAKE_MANUAL_WORKDIR FAKE_MANUAL_PROMPT
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'# Questions\n\nNormalizing user calendars/social contacts needs a migration script and spec. May I create `migrate-user-contact-row-tables.ts` and `.spec.ts`?\n\n1. Create them\n   Add deploy-safe migration and focused tests for the normalized user contact tables.\n2. Edit only\n   Change existing schema/repository tests only, leaving migration files for later.\n3. Type your own answer\n\n↑↓ select  enter submit  esc dismiss\n'
+
+  run_cmd run_manual_ping starthub
+
+  assert_status "$RUN_STATUS" 0 "manual ping answers starthub question with custom policy" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual-question session=starthub reason=custom-autonomy-answer' 'manual custom question output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'tmux send-keys -t %1 Down' 'manual custom question navigated to custom answer' || return 1
+  assert_contains "$command_log" 'tmux send-keys -t %1 Enter' 'manual custom question entered custom answer mode' || return 1
+  assert_contains "$command_log" 'Proceed autonomously. Use a 10x engineer bar: if the gap you found needs a complete overhaul to solve correctly, do the overhaul.' 'manual custom question pasted autonomy policy' || return 1
+  assert_not_contains "$command_log" 'fake-send %1' 'manual custom question did not send normal prompt text' || return 1
+}
+
+test_manual_ping_answers_arbitrary_starthub_question_with_guardrails() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  FAKE_MANUAL_WORKDIR="$HOME/Desktop/StartHub"
+  export FAKE_MANUAL_WORKDIR
+  set_tmux_pane_path "$HOME/Desktop/StartHub"
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'# Questions\n\nMay I create `deploy-production-cleanup.ts` and run it against AWS production?\n\n1. Create them\n   Add the production cleanup script and run it.\n2. Edit only\n   Leave deployment changes for later.\n3. Type your own answer\n\n↑↓ select  enter submit  esc dismiss\n'
+
+  run_cmd run_manual_ping starthub
+
+  assert_status "$RUN_STATUS" 0 "manual ping answers arbitrary starthub question with guardrails" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual-question session=starthub reason=custom-autonomy-answer' 'manual arbitrary question output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'Do not create docs, secrets, credential files, deployment/Kubernetes/AWS changes' 'manual arbitrary question pasted safety guardrails' || return 1
+  assert_not_contains "$command_log" 'fake-send %1' 'manual arbitrary question did not send normal prompt text' || return 1
+}
+
+test_manual_ping_answers_nixelo_queue_question_with_custom_policy() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'# Questions\n\nNo active AI queues remain, the working tree is clean, and recent commits completed the visual-reference backlog. Which queue should I promote next?\n\n1. Component ownership\n   Promote `ai-todos/component-ownership-cleanup.md` from watchlist into active AI work.\n2. Storybook inventory\n   Promote `ai-todos/storybook-inventory.md` from watchlist into active AI work.\n3. Validator audit\n   Promote `ai-todos/validator-audit.md` from watchlist into active AI work.\n4. Stop here\n   Leave all gated/watchlist items untouched until a new objective is chosen.\n5. Type your own answer\n\n↑↓ select  enter submit  esc dismiss\n'
+
+  run_cmd run_manual_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "manual ping answers nixelo queue question" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual-question session=nixelo reason=custom-autonomy-answer' 'manual nixelo question output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'highest-priority non-blocked AI todo according to that todo order' 'manual nixelo question pasted queue policy' || return 1
+  assert_contains "$command_log" 'Do not run TypeScript or Biome checks' 'manual nixelo question pasted nixelo validation policy' || return 1
+  assert_not_contains "$command_log" 'fake-send %1' 'manual nixelo question did not send normal prompt text' || return 1
+}
+
+test_question_guard_answers_generic_session_with_agnostic_policy() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  mkdir -p "$HOME/Desktop/generic"
+  printf 'present\n' > "$FAKE_STATE_DIR/tmux_session_generic"
+  set_tmux_pane_path "$HOME/Desktop/generic"
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'# Questions\n\nThe cron found multiple valid implementation paths. Which should it use?\n\n1. Minimal patch\n   Touch only one file.\n2. Full overhaul\n   Fix the full gap.\n3. Type your own answer\n\n↑↓ select  enter submit  esc dismiss\n'
+
+  run_cmd run_question_guard generic "$HOME/Desktop/generic"
+
+  assert_status "$RUN_STATUS" 0 "question guard answers generic session" || return 1
+  assert_contains "$RUN_OUTPUT" 'status=answered reason=custom-autonomy-answer' 'generic question output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'Use a 10x engineer bar: if the gap you found needs a complete overhaul to solve correctly, do the overhaul.' 'generic question pasted agnostic 10x policy' || return 1
+  assert_contains "$command_log" 'Stay inside the active task scope.' 'generic question pasted scope guardrail' || return 1
+  assert_not_contains "$command_log" 'For Nixelo' 'generic question did not require nixelo policy' || return 1
+  assert_not_contains "$command_log" 'For StartHub' 'generic question did not require starthub policy' || return 1
+}
+
 test_manual_ping_ignores_dirty_worktree() {
   setup_fake_env
 
@@ -1443,6 +1574,25 @@ test_prci_ping_reports_busy_noop() {
 
   assert_status "$RUN_STATUS" 0 "prci ping busy noop" || return 1
   assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:content-changing' 'prci busy noop output' || return 1
+}
+
+test_prci_ping_answers_nixelo_question_with_custom_policy() {
+  setup_fake_env
+
+  USE_REAL_TERMINAL_MODE_GUARD=1
+  export USE_REAL_TERMINAL_MODE_GUARD
+  set_tmux_pane_command 'node'
+  set_tmux_pane_content $'# Questions\n\nReview found multiple valid remediation paths. Which path should I take?\n\n1. Minimal patch\n   Touch only the failing file.\n2. Full overhaul\n   Fix the architectural gap across the affected flow.\n3. Type your own answer\n\n↑↓ select  enter submit  esc dismiss\n'
+
+  run_cmd run_prci_ping nixelo
+
+  assert_status "$RUN_STATUS" 0 "prci ping answers nixelo question" || return 1
+  assert_contains "$RUN_OUTPUT" 'PR-CI: SENT question-answer session=nixelo reason=custom-autonomy-answer' 'prci nixelo question output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'Use a 10x engineer bar: if the gap you found needs a complete overhaul to solve correctly, do the overhaul.' 'prci nixelo question pasted 10x policy' || return 1
+  assert_not_contains "$command_log" 'PR-CI: checks green' 'prci nixelo question did not run dispatch' || return 1
 }
 
 test_prci_ping_prioritizes_dirty_worktree_recovery() {
@@ -2187,6 +2337,10 @@ main() {
   run_test 'manual ping sends prompt without todo tracking' test_manual_ping_sends_prompt_without_todo_tracking
   run_test 'manual ping real preflight sends on idle footer' test_manual_ping_real_preflight_sends_on_idle_footer
   run_test 'manual ping real preflight blocks background wait' test_manual_ping_real_preflight_blocks_background_wait
+  run_test 'manual ping answers starthub question with custom policy' test_manual_ping_answers_starthub_question_with_custom_policy
+  run_test 'manual ping answers arbitrary starthub question with guardrails' test_manual_ping_answers_arbitrary_starthub_question_with_guardrails
+  run_test 'manual ping answers nixelo queue question with custom policy' test_manual_ping_answers_nixelo_queue_question_with_custom_policy
+  run_test 'question guard answers generic session with agnostic policy' test_question_guard_answers_generic_session_with_agnostic_policy
   run_test 'manual ping ignores dirty worktree' test_manual_ping_ignores_dirty_worktree
   run_test 'manual ping rechecks before send' test_manual_ping_rechecks_before_send
   run_test 'agent ping ignores dirty worktree' test_agent_ping_ignores_dirty_worktree
@@ -2194,6 +2348,7 @@ main() {
   run_test 'agent ping real preflight sends on idle footer' test_agent_ping_real_preflight_sends_on_idle_footer
   run_test 'agent ping real preflight blocks background wait' test_agent_ping_real_preflight_blocks_background_wait
   run_test 'prci ping reports busy noop' test_prci_ping_reports_busy_noop
+  run_test 'prci ping answers nixelo question with custom policy' test_prci_ping_answers_nixelo_question_with_custom_policy
   run_test 'prci ping prioritizes dirty worktree recovery' test_prci_ping_prioritizes_dirty_worktree_recovery
   run_test 'prci ping rechecks before dirty-worktree send' test_prci_ping_rechecks_before_dirty_worktree_send
   run_test 'prci ping runs dispatch script' test_prci_ping_runs_dispatch_script

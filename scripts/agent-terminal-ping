@@ -49,6 +49,22 @@ if ! msg="$($OPENCODECTL lane-field agent "$session" prompt 2>/dev/null)"; then
   exit 2
 fi
 
+if answer_automatable_opencode_question "$session" "$workdir"; then
+  echo "SENT role=${role} session=${session} mode=question-answer reason=${TERMINAL_QUESTION_REASON}"
+  exit 0
+else
+  question_status=$?
+  if [[ "$question_status" == "2" ]]; then
+    echo "BLOCKED_HUMAN: question-unhandled role=${role} session=${session} reason=${TERMINAL_QUESTION_REASON}"
+    exit 0
+  fi
+fi
+
+if [[ "${ANSWER_QUESTION_ONLY:-0}" == "1" ]]; then
+  echo "NOOP:question-none role=${role} session=${session} reason=${TERMINAL_QUESTION_REASON}"
+  exit 0
+fi
+
 if ! terminal_send_preflight "$session" "$workdir"; then
   report_preflight_failure
   exit 0

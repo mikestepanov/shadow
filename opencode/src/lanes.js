@@ -12,7 +12,7 @@ const REPO_CONFIG = {
     title: "nixelo",
     workdir: resolveRepoPath("..", "nixelo"),
     manualObjectiveRecovery:
-      "first review `ai-todos/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context and recent repo changes to recover it.",
+      "first review `ai-todos/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. If the active queue is empty, promote the highest-priority non-blocked AI todo according to that todo order and continue without asking. If that is not enough, use the current terminal context and recent repo changes to recover it.",
     manualCompletion:
       "Do not run TypeScript or Biome checks for Nixelo. Run only narrowly relevant checks if needed. Commit no verify with a detailed message explaining what changed and why, then report what's next.",
     prciDispatchScript: resolveRepoPath("scripts", "pr_ci_nixelo_dispatch.sh"),
@@ -21,7 +21,7 @@ const REPO_CONFIG = {
     title: "starthub",
     workdir: resolveRepoPath("..", "StartHub"),
     manualObjectiveRecovery:
-      "first read `todos/backend/postgres-repository-layer-rewrite.md` to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context, recent repo changes, and any obvious active todo or planning doc already in progress.",
+      "first read `todos/backend/postgres-repository-layer-rewrite.md` to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context, recent repo changes, and any obvious active todo or planning doc already in progress. For StartHub manual work, use a 10x engineer bar: if the gap you found needs a complete overhaul to solve correctly, do the overhaul. Create required task-scoped source, migration, and test files in existing project directories without asking first. Still ask before creating docs, secrets, credential files, destructive scripts, deployment changes, dependency changes, or files outside the active task scope.",
     prciDispatchScript: resolveRepoPath("scripts", "pr_ci_starthub_dispatch.sh"),
   },
 };
