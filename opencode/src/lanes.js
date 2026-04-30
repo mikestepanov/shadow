@@ -10,7 +10,7 @@ const REPO_CONFIG = {
     title: "nixelo",
     workdir: resolveRepoPath("..", "nixelo"),
     manualObjectiveRecovery:
-      "first review `todos-hot/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context and recent repo changes to recover it.",
+      "first review `ai-todos/README.md` and any todo markdown files it directly points to in order to recover the exact objective, current phase, and work order. If that is not enough, use the current terminal context and recent repo changes to recover it.",
     manualCompletion:
       "Do not run TypeScript or Biome checks for Nixelo. Run only narrowly relevant checks if needed. Commit no verify with a detailed message explaining what changed and why, then report what's next.",
     prciDispatchScript: resolveRepoPath("scripts", "pr_ci_nixelo_dispatch.sh"),
