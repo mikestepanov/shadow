@@ -137,3 +137,21 @@ kubectl apply -f infrastructure/k8s/jobs/seed-prod.yaml
 - **BE PROACTIVE**: Suggest improvements (e.g., "Want me to apply this pattern elsewhere?").
 - **SELF-CORRECT**: If you make a mistake, admit it and fix it with a new commit.
 - **CHECK BEFORE SPEAKING**: Don't guess. Run the command, read the file, verify the state. Then report what you found.
+
+## Multi-Account Setup
+
+**NEVER ask about API keys.** Use OAuth login or plugins only.
+
+```bash
+opencode-multi-auth add <alias>
+opencode-multi-auth list
+opencode-multi-auth status
+```
+
+Plugin: `@a3fckx/opencode-multi-auth`
+
+Commands:
+- `opencode-multi-auth add <alias>`
+- `opencode-multi-auth list`
+- `opencode-multi-auth status`
+- `opencode-multi-auth remove <alias>`

@@ -94,13 +94,8 @@ dirty_worktree_recovery_prompt() {
   local workdir="$3"
   local dirty_count="$4"
   local branch
-  local completion_instruction
 
   branch="$(cd "$workdir" 2>/dev/null && git branch --show-current 2>/dev/null || echo "current-branch")"
-  completion_instruction="run the required local checks; commit all completed changes; and push the branch"
-  if [[ "$mode" == "manual" && "$session" == "nixelo" ]]; then
-    completion_instruction="do not run TypeScript or Biome checks; run only narrowly relevant checks if needed; commit all completed changes no verify; and push the branch"
-  fi
 
-  printf '%s' "The ${mode} automation for ${session} is blocked by ${dirty_count} uncommitted changes on branch ${branch}. Stop starting new work. Finish the current changes completely: inspect the latest commit, hook, or validation failure; fix the blocker; ${completion_instruction}. If commit or push fails again, keep fixing the blocker until the worktree is clean."
+  printf '%s' "The ${mode} automation for ${session} is blocked by ${dirty_count} uncommitted changes on branch ${branch}. Stop starting new work. Finish the current changes completely: inspect the latest commit, hook, or validation failure; fix the blocker; run the required local checks; commit all completed changes; and push the branch. If commit or push fails again, keep fixing the blocker until the worktree is clean."
 }

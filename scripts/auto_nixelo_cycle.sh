@@ -147,6 +147,17 @@ timer_enabled() {
   echo "disabled"
 }
 
+timer_on() {
+  local timer="$1"
+  systemctl --user is-enabled "$timer" &>/dev/null && systemctl --user is-active "$timer" &>/dev/null
+}
+
+# Reusable timer state checker
+is_timer_on() {
+  local timer="$1"
+  systemctl --user is-enabled "$timer" &>/dev/null && systemctl --user is-active "$timer" &>/dev/null
+}
+
 if [[ "$(auto_enabled)" != "true" ]]; then
   echo "SKIP:auto-disabled"
   exit 0

@@ -72,24 +72,6 @@ if has_error_loop "$pane_tail"; then
   exit 0
 fi
 
-dirty_count="$(repo_dirty_worktree_count "$workdir")"
-if [[ "$dirty_count" != "0" ]]; then
-  if ! terminal_send_preflight "$session" "$workdir"; then
-    report_preflight_failure "final-recheck"
-    exit 0
-  fi
-
-  target="$TERMINAL_PREFLIGHT_PANE"
-  dirty_msg="$(dirty_worktree_recovery_prompt manual "$session" "$workdir" "$dirty_count")"
-  send_tmux_text_enter "$target" "$dirty_msg" || {
-    echo "BLOCKED_HUMAN: prompt-not-ready-for-manual-dirty-worktree session=${session}"
-    exit 0
-  }
-
-  echo "SENT manual session=${session} mode=dirty-worktree changes=${dirty_count}"
-  exit 0
-fi
-
 if ! terminal_send_preflight "$session" "$workdir"; then
   report_preflight_failure "final-recheck"
   exit 0

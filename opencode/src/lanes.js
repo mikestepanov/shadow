@@ -4,6 +4,8 @@ const AGENT_ROLES = ["auditor", "refactor"];
 
 const DEFAULT_MANUAL_COMPLETION =
   "Run all checks (typecheck, lint, validate, tests), commit with a detailed message explaining what changed and why, then report what's next.";
+const MANUAL_QUALITY_BAR =
+  "Quality bar: do not make superficial changes just to get tests green or mark a todo complete. Treat failing tests and todos as signals, not the goal. Solve the underlying problem like a top-tier engineer: understand the design intent, preserve clean boundaries, handle edge cases, remove incidental complexity, and leave the codebase healthier. If a test or todo is wrong, update it with a clear reason instead of gaming it.";
 
 const REPO_CONFIG = {
   nixelo: {
@@ -81,7 +83,7 @@ function buildManualPrompt(repo) {
     throw new Error(`Missing repo config for ${repo}`);
   }
 
-  return `If the current objective is already clear, continue. If it is not clear, ${repoConfig.manualObjectiveRecovery} Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. ${repoConfig.manualCompletion || DEFAULT_MANUAL_COMPLETION}`;
+  return `If the current objective is already clear, continue. If it is not clear, ${repoConfig.manualObjectiveRecovery} Then identify the very next concrete step. If that step is already fully complete, remove it from the relevant todo file and continue to the new next step. Keep the todo docs accurate as you work. Then implement that next step completely and robustly - proper abstractions, edge case handling, tests if applicable, no shortcuts. Take as long as needed. ${MANUAL_QUALITY_BAR} ${repoConfig.manualCompletion || DEFAULT_MANUAL_COMPLETION}`;
 }
 
 function buildAgentPrompt(role) {

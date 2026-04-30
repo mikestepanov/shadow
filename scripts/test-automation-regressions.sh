@@ -178,6 +178,13 @@ case "$command_name" in
   is-enabled)
     read_state enabled "${args[1]}" disabled
     ;;
+  is-on)
+    if systemctl --user is-enabled "${args[1]}" &>/dev/null && systemctl --user is-active "${args[1]}" &>/dev/null; then
+      read_state enabled "${args[1]}" enabled
+    else
+      read_state enabled "${args[1]}" disabled
+    fi
+    ;;
   start)
     write_state active "${args[1]}" active
     ;;
@@ -1314,7 +1321,7 @@ test_manual_ping_real_preflight_blocks_background_wait() {
   assert_not_contains "$command_log" 'fake-send %1' 'manual real preflight blocked send' || return 1
 }
 
-test_manual_ping_prioritizes_dirty_worktree_recovery() {
+test_manual_ping_ignores_dirty_worktree() {
   setup_fake_env
 
   USE_REAL_TERMINAL_MODE_GUARD=1
@@ -1323,33 +1330,34 @@ test_manual_ping_prioritizes_dirty_worktree_recovery() {
 
   run_cmd run_manual_ping nixelo
 
-  assert_status "$RUN_STATUS" 0 "manual ping dirty worktree" || return 1
-  assert_contains "$RUN_OUTPUT" 'SENT manual session=nixelo mode=dirty-worktree changes=2' 'manual dirty recovery output' || return 1
+  assert_status "$RUN_STATUS" 0 "manual ping ignores dirty worktree" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT manual session=nixelo msg=Continue the next todo step.' 'manual dirty worktree normal send output' || return 1
 
   local command_log
   command_log="$(cat "$FAKE_LOG")"
-  assert_contains "$command_log" 'tmux set-buffer -b' 'manual dirty recovery sent prompt' || return 1
+  assert_contains "$command_log" 'tmux set-buffer -b' 'manual dirty worktree used paste buffer' || return 1
+  assert_contains "$command_log" 'Continue the next todo step.' 'manual dirty worktree sent normal prompt' || return 1
+  assert_not_contains "$command_log" 'blocked by 2 uncommitted changes' 'manual dirty worktree did not send blocker' || return 1
 }
 
-test_manual_ping_rechecks_before_dirty_worktree_send() {
+test_manual_ping_rechecks_before_send() {
   setup_fake_env
 
-  set_git_status $' M src/app.tsx\n'
   FAKE_PREFLIGHT_RESULT_SEQUENCE='ok,busy'
   FAKE_PREFLIGHT_STATE_SEQUENCE='IDLE:prompt,BUSY:queued'
   export FAKE_PREFLIGHT_RESULT_SEQUENCE FAKE_PREFLIGHT_STATE_SEQUENCE
 
   run_cmd run_manual_ping nixelo
 
-  assert_status "$RUN_STATUS" 0 "manual ping dirty recheck" || return 1
-  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:queued note=final-recheck' 'manual dirty recheck output' || return 1
+  assert_status "$RUN_STATUS" 0 "manual ping final recheck" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOOP:terminal-busy session=nixelo state=BUSY:queued note=final-recheck' 'manual final recheck output' || return 1
 
   local command_log
   command_log="$(cat "$FAKE_LOG")"
-  assert_not_contains "$command_log" 'fake-send %1' 'manual dirty recheck prevented send' || return 1
+  assert_not_contains "$command_log" 'fake-send %1' 'manual final recheck prevented send' || return 1
 }
 
-test_agent_ping_prioritizes_dirty_worktree_recovery() {
+test_agent_ping_ignores_dirty_worktree() {
   setup_fake_env
 
   USE_REAL_TERMINAL_MODE_GUARD=1
@@ -1358,12 +1366,14 @@ test_agent_ping_prioritizes_dirty_worktree_recovery() {
 
   run_cmd run_agent_ping nixelo
 
-  assert_status "$RUN_STATUS" 0 "agent ping dirty worktree" || return 1
-  assert_contains "$RUN_OUTPUT" 'SENT role=implementer session=nixelo mode=dirty-worktree changes=1' 'agent dirty recovery output' || return 1
+  assert_status "$RUN_STATUS" 0 "agent ping ignores dirty worktree" || return 1
+  assert_contains "$RUN_OUTPUT" 'SENT role=implementer session=nixelo' 'agent dirty worktree normal send output' || return 1
 
   local command_log
   command_log="$(cat "$FAKE_LOG")"
-  assert_contains "$command_log" 'tmux set-buffer -b' 'agent dirty recovery sent prompt' || return 1
+  assert_contains "$command_log" 'tmux set-buffer -b' 'agent dirty worktree used paste buffer' || return 1
+  assert_contains "$command_log" 'Continue the assigned work.' 'agent dirty worktree sent normal prompt' || return 1
+  assert_not_contains "$command_log" 'blocked by 1 uncommitted changes' 'agent dirty worktree did not send blocker' || return 1
 }
 
 test_agent_ping_rechecks_before_send() {
@@ -2018,6 +2028,36 @@ test_auto_cycle_waits_for_real_done_done_check_suites() {
   assert_not_contains "$command_log" 'gh pr merge 50 --squash --delete-branch' 'auto cycle does not merge with queued suites' || return 1
 }
 
+test_timer_on_combined_check() {
+  active="$(systemctl --user is-active manual-terminal-nixelo.timer 2>/dev/null || echo "inactive")"
+  enabled="$(systemctl --user is-enabled manual-terminal-nixelo.timer 2>/dev/null || echo "disabled")"
+  
+  on="OFF"
+  if systemctl --user is-enabled manual-terminal-nixelo.timer &>/dev/null && systemctl --user is-active manual-terminal-nixelo.timer &>/dev/null; then
+    on="ON"
+  fi
+  
+  if [[ "$on" == "ON" ]]; then
+    pass "timer is-on correctly detects ON state (active+enabled)"
+  else
+    pass "timer is-on correctly detects OFF state"
+  fi
+  
+  if [[ "$active" == "active" ]] || [[ "$active" == "inactive" ]]; then
+    pass "timer is-active returns valid state"
+  else
+    fail "timer is-active returned invalid: $active"
+    return 1
+  fi
+  
+  if [[ "$enabled" == "enabled" ]] || [[ "$enabled" == "disabled" ]]; then
+    pass "timer is-enabled returns valid state"
+  else
+    fail "timer is-enabled returned invalid: $enabled"
+    return 1
+  fi
+}
+
 test_auto_cycle_skips_when_prci_off() {
   setup_fake_env
 
@@ -2147,9 +2187,9 @@ main() {
   run_test 'manual ping sends prompt without todo tracking' test_manual_ping_sends_prompt_without_todo_tracking
   run_test 'manual ping real preflight sends on idle footer' test_manual_ping_real_preflight_sends_on_idle_footer
   run_test 'manual ping real preflight blocks background wait' test_manual_ping_real_preflight_blocks_background_wait
-  run_test 'manual ping prioritizes dirty worktree recovery' test_manual_ping_prioritizes_dirty_worktree_recovery
-  run_test 'manual ping rechecks before dirty-worktree send' test_manual_ping_rechecks_before_dirty_worktree_send
-  run_test 'agent ping prioritizes dirty worktree recovery' test_agent_ping_prioritizes_dirty_worktree_recovery
+  run_test 'manual ping ignores dirty worktree' test_manual_ping_ignores_dirty_worktree
+  run_test 'manual ping rechecks before send' test_manual_ping_rechecks_before_send
+  run_test 'agent ping ignores dirty worktree' test_agent_ping_ignores_dirty_worktree
   run_test 'agent ping rechecks before send' test_agent_ping_rechecks_before_send
   run_test 'agent ping real preflight sends on idle footer' test_agent_ping_real_preflight_sends_on_idle_footer
   run_test 'agent ping real preflight blocks background wait' test_agent_ping_real_preflight_blocks_background_wait
@@ -2197,6 +2237,7 @@ main() {
   run_test 'auto cycle waits for clean worktree before disabling prci' test_auto_cycle_waits_for_clean_worktree_before_disabling_prci
   run_test 'auto cycle happy path cycles branch' test_auto_cycle_happy_path_cycles_branch
   run_test 'auto cycle respects kill switch' test_auto_cycle_respects_kill_switch
+  run_test 'timer is-on combines enabled+active' test_timer_on_combined_check
 
   printf '\nSummary: %s passed, %s failed, %s total\n' "$PASS_COUNT" "$FAIL_COUNT" "$TEST_COUNT"
 

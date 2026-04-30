@@ -1,8 +1,8 @@
 [Unit]
-Description=Run PR-CI terminal nudge for starthub every 5 minutes
+Description=Run PR-CI terminal nudge for starthub every 1 minute
 
 [Timer]
-OnCalendar=*-*-* *:00/5:00
+OnCalendar=*-*-* *:*:00
 Persistent=true
 Unit=prci-terminal-starthub.service
 

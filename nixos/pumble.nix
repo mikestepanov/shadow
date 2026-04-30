@@ -73,7 +73,8 @@ in pkgs.stdenv.mkDerivation {
     EOF
 
     makeWrapper $out/opt/Pumble/pumble-desktop $out/bin/pumble \
-      --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath runtimeLibs}"
+      --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath runtimeLibs}" \
+      --add-flags "--disable-gpu --no-sandbox"
   '';
 
   meta = with pkgs.lib; {
