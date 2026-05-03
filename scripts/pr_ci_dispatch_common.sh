@@ -283,34 +283,17 @@ count_unresolved_review_threads() {
   echo "$total"
 }
 
+
 count_new_human_review_comments() {
   local pr_number="$1"
-  local last_commit_ts
 
-  cd "$REPO_DIR"
-  last_commit_ts="$(git log -1 --format=%ct 2>/dev/null || echo "0")"
-
-  [[ "$last_commit_ts" != "0" ]] || {
-    echo "0"
-    return 0
-  }
-
+  # Count all comments NOT from known bots
   gh api "repos/${owner}/${repo}/pulls/${pr_number}/comments" \
-    --jq "[.[] | select((.user.type // \"User\") != \"Bot\") | select((.user.login // \"\") != \"Copilot\") | select((.user.login // \"\") != \"codex-connector\") | select((.user.login // \"\") != \"coderabbit\") | select(.created_at | fromdateiso8601 | .[0] * 1000000000 + .[1] * 1000 > ${last_commit_ts} * 1000)] | length" \
+    --jq '[.[] | select((.user.login // "") as $login | $login != "Copilot" and $login != "codex-connector" and $login != "coderabbit")] | length' \
     2>/dev/null || echo "0"
 }
 
-  gh api "repos/${owner}/${repo}/pulls/${pr_number}/comments" \
-    --jq "[.[] | select((.user.type // \"User\") != \"Bot\") | select((.user.login // \"\") != \"Copilot\") | select((.user.login // \"\") != \"codex-connector\") | select((.user.login // \"\") != \"coderabbit\") | select(.created_at | fromdateiso8601 | .[0] * 1000000000 + .[1] * 1000 > ${last_commit_ts} * 1000)] | length" \
-    2>/dev/null || echo "0"
-}
-
-  gh api "repos/{owner}/{repo}/pulls/${pr_number}/comments" \
-    --jq "[.[] | select(.created_at > \"${last_commit_date}\") | select(.user.type == \"User\")] | length" \
-    2>/dev/null || echo "0"
-}
-
-# ── done-done detection ──────────────────────────────────────────────────────
+# ── done-done detection ──────────────────────────────────────────────
 
 # Check if PR is fully done: CI green + ahead=0 + no unresolved bot comments needing fixes.
 # If done, disable the cron job and notify via Telegram.
@@ -333,15 +316,11 @@ check_done_done() {
     return 1
   fi
 
-  # 2. Check for unresolved review comments (human or bot)
-  local unaddressed_comments
-  unaddressed_comments="$(count_new_human_review_comments "$pr_number")"
-  if [[ "$unaddressed_comments" -gt 0 ]]; then
-    return 1
-  fi
+  # 2. Check for any human comments (exclude known bots)
+  local unresolved
+  unresolved="$(count_new_human_review_comments "$pr_number")"
 
-  if [[ "$unaddressed_comments" -gt 0 ]]; then
-    # There are human review comments posted after our last commit — need to address them
+  if [[ "$unresolved" -gt 0 ]]; then
     return 1
   fi
 
@@ -351,7 +330,6 @@ check_done_done() {
   echo "DONE: PR #${pr_number} is complete — cron disabled, Telegram notified"
   return 0
 }
-
 # ── main loop detection logic ────────────────────────────────────────────────
 
 # Returns:
