@@ -286,8 +286,18 @@ count_unresolved_review_threads() {
 
 count_new_human_review_comments() {
   local pr_number="$1"
+  local repo_slug owner repo
 
-  # Count all comments NOT from known bots
+  repo_slug="$(get_repo_slug)"
+  if [[ -z "$repo_slug" ]]; then
+    echo "0"
+    return
+  fi
+
+  owner="$(echo "$repo_slug" | cut -d'/' -f1)"
+  repo="$(echo "$repo_slug" | cut -d'/' -f2)"
+
+  # Count review comments NOT from known bots
   gh api "repos/${owner}/${repo}/pulls/${pr_number}/comments" \
     --jq '[.[] | select((.user.login // "") as $login | $login != "Copilot" and $login != "codex-connector" and $login != "coderabbit")] | length' \
     2>/dev/null || echo "0"

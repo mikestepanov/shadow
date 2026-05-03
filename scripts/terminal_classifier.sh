@@ -347,15 +347,21 @@ is_stuck() {
 classify_terminal_for_send() {
   local session="$1"
   local state
+  local attempts=0
+  local max_attempts=3
 
-  state=$(classify_terminal "$session")
-  if [[ "$state" != IDLE:* ]]; then
-    echo "$state"
-    return
-  fi
+  while (( attempts < max_attempts )); do
+    state=$(classify_terminal "$session")
+    if [[ "$state" == IDLE:* ]]; then
+      echo "$state"
+      return
+    fi
+    sleep "$SEND_STABILITY_DELAY"
+    (( attempts++ ))
+  done
 
-  sleep "$SEND_STABILITY_DELAY"
-  classify_terminal "$session"
+  # Final state after retries
+  echo "$state"
 }
 
 is_idle_for_send() {

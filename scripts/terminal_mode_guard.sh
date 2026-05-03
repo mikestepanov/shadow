@@ -56,14 +56,20 @@ terminal_send_preflight() {
     return 1
   fi
 
-  TERMINAL_PREFLIGHT_STATE="$(classify_terminal_for_send "$session")"
-  if [[ "$TERMINAL_PREFLIGHT_STATE" != IDLE:* ]]; then
-    TERMINAL_PREFLIGHT_REASON="terminal-not-ready"
-    return 1
-  fi
+  # Retry classification up to 3 times with delays
+  local attempts=0
+  while (( attempts < 3 )); do
+    TERMINAL_PREFLIGHT_STATE="$(classify_terminal_for_send "$session")"
+    if [[ "$TERMINAL_PREFLIGHT_STATE" == IDLE:* ]]; then
+      TERMINAL_PREFLIGHT_REASON="ok"
+      return 0
+    fi
+    sleep 1
+    (( attempts++ ))
+  done
 
-  TERMINAL_PREFLIGHT_REASON="ok"
-  return 0
+  TERMINAL_PREFLIGHT_REASON="terminal-not-ready"
+  return 1
 }
 
 send_tmux_text_enter() {
