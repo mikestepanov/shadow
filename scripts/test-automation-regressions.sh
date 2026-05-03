@@ -2471,3 +2471,39 @@ main() {
 }
 
 main "$@"
+
+test_count_new_human_review_comments_detects_comments() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='99'
+  FAKE_GH_HEAD_SHA='abc123'
+  # Simulate comments: one bot, one human after commit
+  FAKE_GH_COMMENTS='[
+    {"user":{"type":"Bot","login":"copilot"}, 
+    {"user":{"type":"User","login":"human"}, "created_at":"2099-01-01T00:00:00Z"}
+  ]'
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_COMMENTS
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; count_new_human_review_comments 99"
+
+  assert_status "$RUN_STATUS" 0 "count comments detects human" || return 1
+  assert_contains "$RUN_OUTPUT" '1' 'human comment counted' || return 1
+}
+
+test_done_done_blocks_on_human_comments() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='77'
+  FAKE_GH_HEAD_SHA='def456'
+  FAKE_GH_AHEAD='0'
+  FAKE_GH_PR_CHECKS='success'
+  FAKE_GH_COMMENTS='[
+    {"user":{"type":"User","login":"reviewer"}, "created_at":"2099-01-01T00:00:00Z"}
+  ]'
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_AHEAD FAKE_GH_PR_CHECKS FAKE_GH_COMMENTS
+
+  run_cmd run_real_is_done_done nixelo
+
+  assert_status "$RUN_STATUS" 1 "done-done blocks on comments" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOT-READY' 'comments cause not-ready' || return 1
+}
