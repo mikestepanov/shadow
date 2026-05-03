@@ -2,7 +2,7 @@
   description = "Mikhail's NixOS configuration";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     peon-ping.url = "github:PeonPing/peon-ping";
   };
 

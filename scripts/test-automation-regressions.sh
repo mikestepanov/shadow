@@ -470,6 +470,19 @@ if [[ ${1:-} == repo && ${2:-} == view ]]; then
 fi
 
 if [[ ${1:-} == api && ${2:-} == graphql ]]; then
+  count_file="${FAKE_STATE_DIR:?}/gh_graphql_count"
+  count=0
+  if [[ -f "$count_file" ]]; then
+    count="$(cat "$count_file")"
+  fi
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$count_file"
+
+  if page_result="$(printenv "FAKE_GH_GRAPHQL_RESULT_${count}" 2>/dev/null)" && [[ -n "$page_result" ]]; then
+    printf '%s\n' "$page_result"
+    exit 0
+  fi
+
   printf '%s\n' "${FAKE_GH_GRAPHQL_RESULT:-0}"
   exit 0
 fi
@@ -1798,6 +1811,25 @@ test_prci_dispatch_reports_push_failure() {
   assert_contains "$RUN_OUTPUT" 'ERROR:push-failed branch=fixes ahead=2' 'push failure output' || return 1
 }
 
+test_starthub_prci_dispatch_unknown_failure_uses_autonomous_research() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='1814'
+  FAKE_GH_PR_CHECKS=$'Unknown fail'
+  export FAKE_GH_OPEN_PR FAKE_GH_PR_CHECKS
+
+  run_cmd run_prci_dispatch_starthub
+
+  assert_status "$RUN_STATUS" 0 "starthub prci unknown failure autonomous research" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: dispatched to starthub (CI: failing)' 'unknown failure dispatch output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'PR-CI needs autonomous investigation' 'unknown failure uses autonomous research prompt' || return 1
+  assert_contains "$command_log" 'what would a 10x engineer with infinite time do' 'unknown failure includes 10x framing' || return 1
+  assert_not_contains "$command_log" 'fake-send %1 /fix-pr-comments' 'unknown failure does not dispatch fix-pr-comments' || return 1
+}
+
 test_prci_dispatch_escalates_stalled_loop_with_ci_details() {
   setup_fake_env
 
@@ -1824,7 +1856,7 @@ test_prci_dispatch_escalates_stalled_loop_with_ci_details() {
   assert_contains "$command_log" 'fake-send %1 CI is failing with these specific errors.' 'specific ci fix dispatched' || return 1
 }
 
-test_prci_dispatch_alerts_human_after_repeated_stall() {
+test_prci_dispatch_escalates_to_autonomous_research_after_repeated_stall() {
   setup_fake_env
 
   FAKE_GH_OPEN_PR='51'
@@ -1845,8 +1877,14 @@ test_prci_dispatch_alerts_human_after_repeated_stall() {
   assert_status "$RUN_STATUS" 0 "prci dispatch alert warmup 6" || return 1
   run_cmd run_prci_dispatch_nixelo
 
-  assert_status "$RUN_STATUS" 0 "prci dispatch human alert" || return 1
-  assert_contains "$RUN_OUTPUT" 'BLOCKED:alerted-human' 'human alert output' || return 1
+  assert_status "$RUN_STATUS" 0 "prci dispatch autonomous research escalation" || return 1
+  assert_contains "$RUN_OUTPUT" 'OK: dispatched to nixelo (CI: failing)' 'autonomous research dispatch output' || return 1
+
+  local command_log
+  command_log="$(cat "$FAKE_LOG")"
+  assert_contains "$command_log" 'Research online if needed' 'autonomous research prompt includes online research' || return 1
+  assert_contains "$command_log" 'what would a 10x engineer with infinite time do' 'autonomous research prompt includes 10x framing' || return 1
+  assert_not_contains "$RUN_OUTPUT" 'BLOCKED:alerted-human' 'human block removed from repeated stall' || return 1
 }
 
 test_prci_common_repastes_when_command_only_in_history() {
@@ -2155,6 +2193,34 @@ test_is_done_done_blocks_pending_commit_status_contexts() {
   assert_contains "$RUN_OUTPUT" 'NOT-READY:commit-status-contexts-pending (pending=1)' 'pending commit status gate output' || return 1
 }
 
+test_prci_common_counts_paginated_review_threads() {
+  setup_fake_env
+
+  FAKE_GH_GRAPHQL_RESULT_1=$'100\ntrue\nCURSOR1'
+  FAKE_GH_GRAPHQL_RESULT_2=$'7\nfalse\n'
+  export FAKE_GH_GRAPHQL_RESULT_1 FAKE_GH_GRAPHQL_RESULT_2
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; count_unresolved_review_threads 1814"
+
+  assert_status "$RUN_STATUS" 0 "prci common paginated review thread count" || return 1
+  assert_contains "$RUN_OUTPUT" '107' 'prci common sums review thread pages' || return 1
+}
+
+test_is_done_done_blocks_paginated_unresolved_review_threads() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='55'
+  FAKE_GH_HEAD_SHA='dd303612ab37f6bb5d7375294f2086c394567cf5'
+  FAKE_GH_GRAPHQL_RESULT_1=$'0\ntrue\nCURSOR1'
+  FAKE_GH_GRAPHQL_RESULT_2=$'3\nfalse\n'
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_GRAPHQL_RESULT_1 FAKE_GH_GRAPHQL_RESULT_2
+
+  run_cmd run_real_is_done_done nixelo
+
+  assert_status "$RUN_STATUS" 2 "is_done_done paginated unresolved review threads" || return 1
+  assert_contains "$RUN_OUTPUT" 'NOT-READY:unresolved-review-threads (count=3)' 'done-done sees unresolved threads after first page' || return 1
+}
+
 test_auto_cycle_waits_for_real_done_done_check_suites() {
   setup_fake_env
 
@@ -2361,8 +2427,9 @@ main() {
   run_test 'starthub prci dispatch green fixes unresolved threads' test_starthub_prci_dispatch_green_fixes_unresolved_threads
   run_test 'starthub prci dispatch pending fixes changes requested' test_starthub_prci_dispatch_pending_fixes_changes_requested
   run_test 'prci dispatch reports push failure' test_prci_dispatch_reports_push_failure
+  run_test 'starthub prci dispatch unknown failure uses autonomous research' test_starthub_prci_dispatch_unknown_failure_uses_autonomous_research
   run_test 'prci dispatch escalates stalled loop with ci details' test_prci_dispatch_escalates_stalled_loop_with_ci_details
-  run_test 'prci dispatch alerts human after repeated stall' test_prci_dispatch_alerts_human_after_repeated_stall
+  run_test 'prci dispatch escalates to autonomous research after repeated stall' test_prci_dispatch_escalates_to_autonomous_research_after_repeated_stall
   run_test 'prci common repastes when command only in history' test_prci_common_repastes_when_command_only_in_history
   run_test 'prci common submits when command buffered at prompt' test_prci_common_submits_when_command_buffered_at_prompt
   run_test 'prci common double-enters slash command after paste' test_prci_common_double_enters_slash_command_after_paste
@@ -2384,8 +2451,10 @@ main() {
   run_test 'terminal mode guard reports path mismatch' test_terminal_mode_guard_reports_path_mismatch
   run_test 'terminal mode guard rejects shell-only pane' test_terminal_mode_guard_rejects_shell_only
   run_test 'terminal mode guard uses paste-buffer send path' test_terminal_mode_guard_uses_paste_buffer_send_path
+  run_test 'prci common counts paginated review threads' test_prci_common_counts_paginated_review_threads
   run_test 'is_done_done blocks pending check suites' test_is_done_done_blocks_pending_check_suites
   run_test 'is_done_done blocks pending commit status contexts' test_is_done_done_blocks_pending_commit_status_contexts
+  run_test 'is_done_done blocks paginated unresolved review threads' test_is_done_done_blocks_paginated_unresolved_review_threads
   run_test 'auto cycle waits for real done-done check suites' test_auto_cycle_waits_for_real_done_done_check_suites
   run_test 'auto cycle skips when prci is off' test_auto_cycle_skips_when_prci_off
   run_test 'auto cycle requires attached open pr' test_auto_cycle_requires_open_pr

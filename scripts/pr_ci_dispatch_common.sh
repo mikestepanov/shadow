@@ -222,6 +222,12 @@ send_result_suffix() {
   printf ' (send:%s)' "$SEND_COMMAND_RESULT"
 }
 
+prci_autonomous_research_prompt() {
+  local reason="$1"
+
+  printf '%s' "PR-CI needs autonomous investigation: ${reason}. Do not ask for human help yet and do not stop at review comments that only say a bot could not review the PR. Research online if needed, inspect the PR, CI checks, failed logs, review comments, repository code, and local state. Ask yourself: what would a 10x engineer with infinite time do to get this PR merged correctly? Then do that. Find the root cause, implement the fix completely, run the narrowest reliable verification, commit, and push. Stay within the active PR scope and do not use destructive git history rewrites."
+}
+
 alert_telegram() {
   local msg="$1"
   local token="${TELEGRAM_BOT_TOKEN:-}"
@@ -239,7 +245,7 @@ get_repo_slug() {
 
 count_unresolved_review_threads() {
   local pr_number="$1"
-  local repo_slug owner repo
+  local repo_slug owner repo cursor total page
 
   repo_slug="$(get_repo_slug)"
   [[ -n "$repo_slug" ]] || {
@@ -250,13 +256,31 @@ count_unresolved_review_threads() {
   owner="${repo_slug%%/*}"
   repo="${repo_slug#*/}"
 
-  gh api graphql \
-    -f owner="$owner" \
-    -f repo="$repo" \
-    -F number="$pr_number" \
-    -f query='query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
-    --jq '[(.data.repository.pullRequest.reviewThreads.nodes // [])[] | select(.isResolved == false)] | length' \
-    2>/dev/null || echo "0"
+  cursor=""
+  total=0
+
+  while :; do
+    page="$(gh api graphql \
+      -f owner="$owner" \
+      -f repo="$repo" \
+      -F number="$pr_number" \
+      -f cursor="$cursor" \
+      -f query='query($owner: String!, $repo: String!, $number: Int!, $cursor: String) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: 100, after: $cursor) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }' \
+      --jq '[(.data.repository.pullRequest.reviewThreads.nodes // [])[] | select(.isResolved == false)] | length, (.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false), (.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "")' \
+      2>/dev/null)" || {
+      echo "0"
+      return 0
+    }
+
+    total=$((total + $(printf '%s\n' "$page" | sed -n '1p')))
+    if [[ "$(printf '%s\n' "$page" | sed -n '2p')" != "true" ]]; then
+      break
+    fi
+    cursor="$(printf '%s\n' "$page" | sed -n '3p')"
+    [[ -n "$cursor" ]] || break
+  done
+
+  echo "$total"
 }
 
 count_new_human_review_comments() {
@@ -330,7 +354,7 @@ check_done_done() {
 
 # Returns:
 #   0 = dispatch allowed (command in $DISPATCH_CMD)
-#   1 = dispatch blocked (loop detected, already escalated)
+#   1 = dispatch blocked because the terminal is not ready
 check_and_dispatch() {
   local default_cmd="$1"
 
@@ -384,14 +408,15 @@ check_and_dispatch() {
       DISPATCH_CMD="$specific_cmd"
       return 0
     else
-      # Can't get CI details — alert human
+      # Can't get CI details — force a deeper autonomous investigation instead of blocking on a human.
       local doubled=$((MAX_IDENTICAL * 2))
       if [[ "$loop_count" -ge "$doubled" ]]; then
-        alert_telegram "🚨 ${REPO_NAME} PR-CI stuck: ${loop_count} dispatches with no progress. Last hash: ${current_hash}. Needs human intervention."
-        echo "BLOCKED:alerted-human"
-        # Don't reset counter — keep blocking until commit appears
-        json_set_num "$STATE_FILE" "$REPO_NAME" "identical_dispatch_count" "$loop_count"
-        return 1
+        alert_telegram "🚨 ${REPO_NAME} PR-CI stuck: ${loop_count} dispatches with no progress. Last hash: ${current_hash}. Escalating to autonomous research mode."
+        json_set_num "$STATE_FILE" "$REPO_NAME" "identical_dispatch_count" 0
+        json_set "$STATE_FILE" "$REPO_NAME" "last_dispatch_command" "autonomous-research-escalation"
+        json_set "$STATE_FILE" "$REPO_NAME" "last_dispatch_at" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        DISPATCH_CMD="PR-CI is stuck after ${loop_count} dispatches with no new commit at ${current_hash}. Do not ask for human help yet. Research online if needed, inspect the PR, CI checks, failed logs, review comments, repository code, and local state. Ask yourself: what would a 10x engineer with infinite time do to get this PR merged correctly? Then do that. Find the root cause, implement the fix completely, run the narrowest reliable verification, commit, and push. Stay within the active PR scope and do not use destructive git history rewrites."
+        return 0
       fi
       # First escalation round — try default one more time
       json_set_num "$STATE_FILE" "$REPO_NAME" "identical_dispatch_count" "$loop_count"

@@ -53,6 +53,7 @@ Nixelo currently uses a systemd-first automation loop:
 - `manual-terminal-nixelo.timer` = manual TODO work mode
 - `prci-terminal-nixelo.timer` = PR review / fix mode
 - `opencode-auto-nixelo.timer` = done-done watcher and branch-cycle automation
+- `agent-terminal-nixelo.timer` = separate agent nudge lane; this is not auto mode
 
 Expected nixelo lifecycle:
 
@@ -64,6 +65,7 @@ Expected nixelo lifecycle:
 Important:
 
 - the live mode can change over time; always verify it from systemd before stating it
+- `auto nixelo` means `opencode-auto-nixelo.timer` plus the `auto-nixelo-enabled.json` gate; never map it to `agent-terminal-nixelo.timer`
 - `manual-terminal-nixelo.timer` and `prci-terminal-nixelo.timer` are mutually exclusive in the intended steady state
 - `opencode-auto-nixelo.timer` can remain active while either manual or PR-CI mode is active
 - `bash ~/Desktop/shadow/scripts/healthcheck.sh` — run health check directly

@@ -293,6 +293,8 @@ in
     pumble
     unzip
     tmux
+    wl-clipboard
+    xclip
 
     # AWS & Kubernetes & GCP & Infrastructure
     awscli2

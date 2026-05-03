@@ -197,10 +197,26 @@ if [[ "$changes_requested" != "0" ]]; then
 fi
 
 # --- Gate 4: No unresolved review threads (GraphQL — covers threaded conversations) ---
-unresolved_threads=$(gh api graphql \
-  -f query='query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved}}}}}' \
-  -F owner="$OWNER" -F name="$REPO_NAME" -F n="$pr_number" \
-  --jq '.data.repository.pullRequest.reviewThreads.nodes | [ .[] | select(.isResolved==false) ] | length' 2>/dev/null || echo "ERR")
+cursor=""
+unresolved_threads=0
+while :; do
+  review_thread_page=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$n:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}' \
+    -F owner="$OWNER" -F name="$REPO_NAME" -F n="$pr_number" -f cursor="$cursor" \
+    --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length, (.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false), (.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "")' 2>/dev/null || echo "ERR")
+
+  if [[ "$review_thread_page" == "ERR" ]]; then
+    unresolved_threads="ERR"
+    break
+  fi
+
+  unresolved_threads=$((unresolved_threads + $(printf '%s\n' "$review_thread_page" | sed -n '1p')))
+  if [[ "$(printf '%s\n' "$review_thread_page" | sed -n '2p')" != "true" ]]; then
+    break
+  fi
+  cursor="$(printf '%s\n' "$review_thread_page" | sed -n '3p')"
+  [[ -n "$cursor" ]] || break
+done
 
 if [[ "$unresolved_threads" == "ERR" ]]; then
   echo "NOT-READY:cannot-check-review-threads (gh api error)"

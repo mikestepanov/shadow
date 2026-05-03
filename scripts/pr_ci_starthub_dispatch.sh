@@ -92,7 +92,7 @@ get_smart_command() {
     joined="$(printf '%s ' "${cmd_parts[@]}")"
     echo "${joined}Commit and push when fixed."
   else
-    echo "/fix-pr-comments"
+    prci_autonomous_research_prompt "CI is failing, but PR-CI could not classify the failing check from GitHub status output"
   fi
 }
 

@@ -22,7 +22,6 @@ This file contains the single source of truth for:
 - **Rules**: `[RULES.md](./RULES.md)` (The Law - Read this first)
 - **Features**: `[/docs/features/feature-index.md](./docs/features/feature-index.md)`
 - **Docs**: `[/docs/README.md](./docs/README.md)` (Architecture & Guides)
-- **Internal**: `[/hidden/INDEX.md](./hidden/INDEX.md)` (Internal context & TODOs)
 
 ## 🚨 Critical Safety Protocols
 
@@ -63,7 +62,7 @@ This file contains the single source of truth for:
 ## 🚀 Workflow & Protocols
 
 ### First 5 Minutes
-1. **Context**: Read `/hidden/INDEX.md` (if exists) and `RULES.md`.
+1. **Context**: Read `RULES.md`.
 2. **Status**: Check `git status` and `git log` to understand recent activity.
 3. **Plan**: Validate understanding before writing code.
 
@@ -99,6 +98,14 @@ For any operational/system state claim (timers, services, processes, automation 
 1. Execute the requested action.
 2. Run a separate verification command immediately after.
 3. Report only verified facts from command output.
+
+### Nixelo Automation Mode Names (MANDATORY)
+- `auto nixelo` means `opencode-auto-nixelo.timer` and the `auto-nixelo-enabled.json` gate. It does **not** mean `agent-terminal-nixelo.timer`.
+- `agent-terminal-nixelo.timer` is a separate agent nudge lane. Never enable it when the user asks for `auto nixelo`.
+- `manual-terminal-nixelo.timer` is manual TODO work mode.
+- `prci-terminal-nixelo.timer` is PR review / fix mode.
+- Before changing any nixelo automation mode, verify the exact live unit names with `systemctl --user status manual-terminal-nixelo.timer prci-terminal-nixelo.timer opencode-auto-nixelo.timer agent-terminal-nixelo.timer --no-pager`.
+- If the user says `auto`, ask one short clarification if they might mean the agent lane. Do not guess.
 
 Hard rules:
 - Never claim "done", "stopped", "running", or similar without fresh verification output.
@@ -143,15 +150,15 @@ kubectl apply -f infrastructure/k8s/jobs/seed-prod.yaml
 **NEVER ask about API keys.** Use OAuth login or plugins only.
 
 ```bash
-opencode-multi-auth add <alias>
-opencode-multi-auth list
-opencode-multi-auth status
+oc-codex-multi-auth add <alias>
+oc-codex-multi-auth list
+oc-codex-multi-auth status
 ```
 
-Plugin: `@a3fckx/opencode-multi-auth`
+Plugin: `oc-codex-multi-auth`
 
 Commands:
-- `opencode-multi-auth add <alias>`
-- `opencode-multi-auth list`
-- `opencode-multi-auth status`
-- `opencode-multi-auth remove <alias>`
+- `oc-codex-multi-auth add <alias>`
+- `oc-codex-multi-auth list`
+- `oc-codex-multi-auth status`
+- `oc-codex-multi-auth remove <alias>`

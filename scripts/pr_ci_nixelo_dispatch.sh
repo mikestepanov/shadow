@@ -75,7 +75,7 @@ ${e2e_errors}"
   elif [[ "$failing_backend" -gt 0 ]]; then
     echo "Backend tests are failing. Run backend tests locally, fix the failures, commit and push."
   else
-    echo "/fix-pr-comments"
+    prci_autonomous_research_prompt "CI is failing, but PR-CI could not classify the failing check from GitHub status output"
   fi
 }
 
