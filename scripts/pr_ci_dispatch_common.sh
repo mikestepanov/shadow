@@ -240,7 +240,7 @@ alert_telegram() {
 }
 
 get_repo_slug() {
-  cd "$REPO_DIR" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo ""
+  cd "$REPO_DIR" && git remote get-url origin 2>/dev/null | sed 's|https://github.com/||; s|.git$||'
 }
 
 count_unresolved_review_threads() {
