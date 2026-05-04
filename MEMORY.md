@@ -16,11 +16,11 @@ Do not use this file as a full incident archive. Historical details live in `mem
 - Gateway health: `OK`, Telegram health `ok`
 - Watcher timer: `active`, `enabled`
 - Current agent defaults in `~/.openclaw/openclaw.json`:
-  - primary model: `openai-codex/gpt-5.4-high`
-  - heartbeat model: `openai-codex/gpt-5.4-high`
-  - subagents model: `openai-codex/gpt-5.4-high`
+  - primary model: `openai/gpt-5.5`
+  - heartbeat model: `openai/gpt-5.5`
+  - subagents model: `openai/gpt-5.5`
 - Current cron jobs:
-  - `Heartbeat`: enabled, runs every 10m, payload model still pinned to `openai-codex/gpt-5.3-codex`
+  - `Heartbeat`: enabled, runs every 10m, payload model `openai/gpt-5.5`
   - `pr-ci-nixelo`: disabled
   - `pr-ci-starthub`: disabled
   - `Morning Sub-Agent Report`: disabled

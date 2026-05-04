@@ -26,7 +26,7 @@ SEND_STABILITY_DELAY="${SEND_STABILITY_DELAY:-3}"
 RECENT_TAIL_CONTEXT_LINES="${RECENT_TAIL_CONTEXT_LINES:-5}"
 
 # Volatile patterns stripped before content-diff (timers, progress, counters)
-VOLATILE_STRIP='/(Working \(|Waiting for|esc to interrupt|% left|background terminal|·.*running|Worked for|Messages to be submitted)/d'
+VOLATILE_STRIP='/(Working \(|Waiting for|esc to interrupt|esc interrupt|% left|background terminal|·.*running|Worked for|Messages to be submitted)/d'
 
 # Process names that indicate real work (child runners)
 RUNNER_RE='(pnpm|npm|npx|tsx|playwright|vitest|jest|tsc|pytest|python|gradle|mvn|docker|kubectl|aws|curl|wget|make|sh|bash.*-c|go test|cargo test|node.*playwright|node.*jest|node.*vitest)'
@@ -37,14 +37,14 @@ QUEUE_RE='(Messages to be submitted|Press up to edit queued messages|queued mess
 # Explicit waiting/running UI markers that mean the harness is still busy even
 # when the footer path is visible and the process tree is quiet.
 BACKGROUND_WAIT_RE='(Waiting for background terminal|Waited for background terminal|background terminal.*running)'
-TAIL_WORK_RE='(Working \(|esc to interrupt)'
+TAIL_WORK_RE='(Working \(|esc to interrupt|esc interrupt)'
 
 # Prompt glyphs
 # OpenCode uses a box-drawing gutter for the live input row.
 PROMPT_RE='^[[:space:]]*(>|›|❯|┃)([[:space:]]*$|[[:space:]]+.*)'
 
 # Active work indicators (only meaningful within 5 lines of cursor)
-WORK_INDICATOR_RE='(Working \(|esc to interrupt|Waiting for background terminal)'
+WORK_INDICATOR_RE='(Working \(|esc to interrupt|esc interrupt|Waiting for background terminal)'
 
 # Static UI markers that indicate the harness is still interactive.
 READY_UI_RE='(ctrl\+p commands|OpenCode [0-9]|Ask anything\.\.\.|tab agents|Build[[:space:]]+[[:alnum:].-]+)'

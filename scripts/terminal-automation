@@ -66,6 +66,8 @@ Usage:
   scripts/terminal-automation execute <plan-id>        Execute a previously planned change
   scripts/terminal-automation off [all|nixelo|starthub] [--clean-failed]   (LEGACY — prefer plan/execute)
   scripts/terminal-automation assert-off [all|nixelo|starthub]
+  scripts/terminal-automation assert-consistent [all|nixelo|starthub]
+  scripts/terminal-automation validate [all|nixelo|starthub]
 
 Actions for plan:
   enable-manual <nixelo|starthub|all>
@@ -358,6 +360,24 @@ systemd_off_ok() {
   [[ $active_ok -eq 1 && $enabled_ok -eq 1 ]]
 }
 
+systemd_mode_consistent_ok() {
+  local unit="$1"
+  local a e
+  a="$(unit_active "$unit")"
+  e="$(unit_enabled "$unit")"
+
+  case "$a:$e" in
+    active:enabled|activating:enabled|reloading:enabled)
+      return 0
+      ;;
+    inactive:disabled|inactive:masked|failed:disabled|failed:masked|unknown:disabled|unknown:masked)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
 cron_off_ok() {
   local name="$1"
   local st
@@ -425,6 +445,36 @@ assert_off() {
   else
     return 1
   fi
+}
+
+assert_consistent() {
+  local scope="$1"
+  local ok=1
+
+  while IFS= read -r unit; do
+    if ! systemd_mode_consistent_ok "$unit"; then
+      echo "ASSERT_FAIL systemd-mode $unit active=$(unit_active "$unit") enabled=$(unit_enabled "$unit")"
+      ok=0
+    fi
+  done < <(scope_units "$scope")
+
+  if [[ "$ok" -eq 1 ]]; then
+    echo "ASSERT_OK consistent scope=$scope"
+  else
+    return 1
+  fi
+}
+
+validate_modes() {
+  local scope="$1"
+
+  if assert_consistent "$scope"; then
+    echo "VALID:automation-modes scope=$scope"
+    return 0
+  fi
+
+  echo "INVALID:automation-modes scope=$scope — fix with scripts/terminal-automation plan off $scope, enable-* $scope, or disable-* $scope"
+  return 1
 }
 
 create_plan() {
@@ -592,6 +642,7 @@ execute_plan() {
   echo ""
   echo "=== Post-execution state ==="
   print_status
+  validate_modes "$scope"
 }
 
 # Clean up old plans (>24h)
@@ -633,6 +684,14 @@ main() {
     assert-off)
       local scope="${2:-all}"
       assert_off "$scope"
+      ;;
+    assert-consistent)
+      local scope="${2:-all}"
+      assert_consistent "$scope"
+      ;;
+    validate|is-all-valid)
+      local scope="${2:-all}"
+      validate_modes "$scope"
       ;;
     -h|--help|help|"")
       usage

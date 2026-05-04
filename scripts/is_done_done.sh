@@ -203,18 +203,20 @@ while :; do
   review_thread_page=$(gh api graphql \
     -f query='query($owner:String!,$name:String!,$n:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}' \
     -F owner="$OWNER" -F name="$REPO_NAME" -F n="$pr_number" -f cursor="$cursor" \
-    --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length, (.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false), (.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "")' 2>/dev/null || echo "ERR")
+    --jq '[((.data.repository.pullRequest.reviewThreads.nodes // []) | map(select(.isResolved == false)) | length), (.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false), (.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "")] | @tsv' 2>/dev/null || echo "ERR")
 
   if [[ "$review_thread_page" == "ERR" ]]; then
     unresolved_threads="ERR"
     break
   fi
 
-  unresolved_threads=$((unresolved_threads + $(printf '%s\n' "$review_thread_page" | sed -n '1p')))
-  if [[ "$(printf '%s\n' "$review_thread_page" | sed -n '2p')" != "true" ]]; then
+  IFS=$'\t' read -r page_count has_next_page next_cursor <<< "$review_thread_page"
+  page_count="${page_count:-0}"
+  unresolved_threads=$((unresolved_threads + page_count))
+  if [[ "${has_next_page:-false}" != "true" ]]; then
     break
   fi
-  cursor="$(printf '%s\n' "$review_thread_page" | sed -n '3p')"
+  cursor="${next_cursor:-}"
   [[ -n "$cursor" ]] || break
 done
 

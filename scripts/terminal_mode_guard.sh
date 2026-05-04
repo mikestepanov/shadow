@@ -132,7 +132,7 @@ opencode_question_autonomy_answer() {
       ;;
   esac
 
-  printf '%s' "Proceed autonomously. Use a 10x engineer bar: if the gap you found needs a complete overhaul to solve correctly, do the overhaul.${repo_context} Stay inside the active task scope. Do not create docs, secrets, credential files, deployment/Kubernetes/AWS changes, dependency changes, destructive scripts, git history rewrites, or out-of-scope files. If the question truly requires restricted action, product input, secrets, production/deployment access, destructive git history rewrites, or action outside the active task scope, stop and report BLOCKED_HUMAN with the reason. Otherwise make the safe local decision and continue."
+  printf '%s' "Proceed autonomously. Use a 10x engineer bar: if the gap you found needs a complete overhaul to solve correctly, do the overhaul.${repo_context} Stay inside the active task scope. Do not create docs, secrets, credential files, deployment/Kubernetes/AWS changes, dependency changes, destructive scripts, git history rewrites, or out-of-scope files. If the question appears to require restricted action, find an in-scope technical alternative, research online if needed, make the safest local decision, and continue."
 }
 
 select_opencode_custom_answer() {

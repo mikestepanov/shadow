@@ -129,10 +129,16 @@ case "$CI_STATUS" in
       review_decision=$(gh pr view "$pr_number" --json reviewDecision -q '.reviewDecision' 2>/dev/null || echo "NONE")
       
       unresolved_threads="$(count_unresolved_review_threads "$pr_number")"
-      unresolved_threads=${unresolved_threads:-0}
+      if [[ "$unresolved_threads" == "-1" ]]; then
+        echo "NOOP:review-check-failed — could not fetch unresolved review threads"
+        exit 0
+      fi
       new_human_comments="$(count_new_human_review_comments "$pr_number")"
-      new_human_comments=${new_human_comments:-0}
-      
+      if [[ "$new_human_comments" == "-1" ]]; then
+        echo "NOOP:review-check-failed — could not fetch new human review comments"
+        exit 0
+      fi
+
       if [[ "$unresolved_threads" -gt 0 || "$new_human_comments" -gt 0 || "$review_decision" == "CHANGES_REQUESTED" ]]; then
         # There are unresolved review issues - send fix command
         dismiss_rating_prompt

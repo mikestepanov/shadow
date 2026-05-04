@@ -470,6 +470,10 @@ if [[ ${1:-} == repo && ${2:-} == view ]]; then
 fi
 
 if [[ ${1:-} == api && ${2:-} == graphql ]]; then
+  if [[ "${FAKE_GH_GRAPHQL_EXIT:-0}" != "0" ]]; then
+    exit "${FAKE_GH_GRAPHQL_EXIT}"
+  fi
+
   count_file="${FAKE_STATE_DIR:?}/gh_graphql_count"
   count=0
   if [[ -f "$count_file" ]]; then
@@ -488,6 +492,10 @@ if [[ ${1:-} == api && ${2:-} == graphql ]]; then
 fi
 
 if [[ ${1:-} == api ]]; then
+  if [[ "${FAKE_GH_API_EXIT:-0}" != "0" ]]; then
+    exit "${FAKE_GH_API_EXIT}"
+  fi
+
   endpoint="${2:-}"
   query="$(arg_value --jq "$@" || arg_value -q "$@" || true)"
 
@@ -565,6 +573,12 @@ case "${1:-}" in
   rev-list)
     printf '%s\n' "${FAKE_GIT_AHEAD_COUNT:-0}"
     exit 0
+    ;;
+  remote)
+    if [[ ${2:-} == get-url && ${3:-} == origin ]]; then
+      printf 'https://github.com/%s.git\n' "${FAKE_GH_REPO_SLUG:-NixeloApp/nixelo}"
+      exit 0
+    fi
     ;;
   show-ref)
     if [[ -f "$state_dir/git_show_ref_exists" ]]; then
@@ -2043,6 +2057,19 @@ test_terminal_classifier_reports_busy_tail_work_indicator() {
   assert_contains "$RUN_OUTPUT" 'BUSY:work-indicator' 'tail work indicator classification' || return 1
 }
 
+test_terminal_classifier_reports_busy_opencode_esc_interrupt_footer() {
+  setup_fake_env
+
+  set_tmux_cursor_y '80'
+  set_tmux_pane_content $'Completed output block\n\n  Build · GPT 5.5 (OAuth) OpenAI · medium · ~/Desktop/nixelo\n   ⬝⬝⬝⬝⬝⬝■■  esc interrupt     139.7K (35%)  ctrl+p commands    • OpenCode 1.14.25\n'
+  set_tmux_pane_command 'node'
+
+  run_cmd run_real_terminal_classifier "source '$ROOT_DIR/scripts/terminal_classifier.sh'; classify_terminal nixelo"
+
+  assert_status "$RUN_STATUS" 0 "classifier opencode esc interrupt footer" || return 1
+  assert_contains "$RUN_OUTPUT" 'BUSY:work-indicator' 'opencode esc interrupt footer classification' || return 1
+}
+
 test_terminal_classifier_ignores_stale_background_wait_outside_recent_tail() {
   setup_fake_env
 
@@ -2196,8 +2223,8 @@ test_is_done_done_blocks_pending_commit_status_contexts() {
 test_prci_common_counts_paginated_review_threads() {
   setup_fake_env
 
-  FAKE_GH_GRAPHQL_RESULT_1=$'100\ntrue\nCURSOR1'
-  FAKE_GH_GRAPHQL_RESULT_2=$'7\nfalse\n'
+  FAKE_GH_GRAPHQL_RESULT_1=$'100\ttrue\tCURSOR1'
+  FAKE_GH_GRAPHQL_RESULT_2=$'7\tfalse\t'
   export FAKE_GH_GRAPHQL_RESULT_1 FAKE_GH_GRAPHQL_RESULT_2
 
   run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; count_unresolved_review_threads 1814"
@@ -2211,8 +2238,8 @@ test_is_done_done_blocks_paginated_unresolved_review_threads() {
 
   FAKE_GH_OPEN_PR='55'
   FAKE_GH_HEAD_SHA='dd303612ab37f6bb5d7375294f2086c394567cf5'
-  FAKE_GH_GRAPHQL_RESULT_1=$'0\ntrue\nCURSOR1'
-  FAKE_GH_GRAPHQL_RESULT_2=$'3\nfalse\n'
+  FAKE_GH_GRAPHQL_RESULT_1=$'0\ttrue\tCURSOR1'
+  FAKE_GH_GRAPHQL_RESULT_2=$'3\tfalse\t'
   export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_GRAPHQL_RESULT_1 FAKE_GH_GRAPHQL_RESULT_2
 
   run_cmd run_real_is_done_done nixelo
@@ -2272,6 +2299,92 @@ test_timer_on_combined_check() {
     fail "timer is-enabled returned invalid: $enabled"
     return 1
   fi
+}
+
+test_terminal_automation_accepts_consistent_timer_modes() {
+  setup_fake_env
+
+  set_unit_state active "manual-terminal-nixelo.timer" active
+  set_unit_state enabled "manual-terminal-nixelo.timer" enabled
+  set_unit_state active "agent-terminal-nixelo.timer" inactive
+  set_unit_state enabled "agent-terminal-nixelo.timer" disabled
+  set_unit_state active "prci-terminal-nixelo.timer" inactive
+  set_unit_state enabled "prci-terminal-nixelo.timer" masked
+
+  run_cmd run_terminal_automation assert-consistent nixelo
+
+  assert_status "$RUN_STATUS" 0 "consistent timer modes accepted" || return 1
+  assert_contains "$RUN_OUTPUT" 'ASSERT_OK consistent scope=nixelo' 'consistent assertion passes' || return 1
+}
+
+test_terminal_automation_rejects_enabled_inactive_timer() {
+  setup_fake_env
+
+  set_unit_state active "prci-terminal-nixelo.timer" inactive
+  set_unit_state enabled "prci-terminal-nixelo.timer" enabled
+
+  run_cmd run_terminal_automation assert-consistent nixelo
+
+  assert_status "$RUN_STATUS" 1 "enabled inactive timer rejected" || return 1
+  assert_contains "$RUN_OUTPUT" 'ASSERT_FAIL systemd-mode prci-terminal-nixelo.timer active=inactive enabled=enabled' 'enabled inactive assertion fails' || return 1
+}
+
+test_terminal_automation_rejects_disabled_active_timer() {
+  setup_fake_env
+
+  set_unit_state active "prci-terminal-nixelo.timer" active
+  set_unit_state enabled "prci-terminal-nixelo.timer" disabled
+
+  run_cmd run_terminal_automation assert-consistent nixelo
+
+  assert_status "$RUN_STATUS" 1 "disabled active timer rejected" || return 1
+  assert_contains "$RUN_OUTPUT" 'ASSERT_FAIL systemd-mode prci-terminal-nixelo.timer active=active enabled=disabled' 'disabled active assertion fails' || return 1
+}
+
+test_terminal_automation_validate_reports_valid_modes() {
+  setup_fake_env
+
+  set_unit_state active "manual-terminal-nixelo.timer" active
+  set_unit_state enabled "manual-terminal-nixelo.timer" enabled
+  set_unit_state active "agent-terminal-nixelo.timer" inactive
+  set_unit_state enabled "agent-terminal-nixelo.timer" disabled
+  set_unit_state active "prci-terminal-nixelo.timer" inactive
+  set_unit_state enabled "prci-terminal-nixelo.timer" masked
+
+  run_cmd run_terminal_automation validate nixelo
+
+  assert_status "$RUN_STATUS" 0 "validate reports valid modes" || return 1
+  assert_contains "$RUN_OUTPUT" 'ASSERT_OK consistent scope=nixelo' 'validate includes consistency assertion' || return 1
+  assert_contains "$RUN_OUTPUT" 'VALID:automation-modes scope=nixelo' 'validate success feedback' || return 1
+}
+
+test_terminal_automation_validate_reports_invalid_modes() {
+  setup_fake_env
+
+  set_unit_state active "prci-terminal-nixelo.timer" inactive
+  set_unit_state enabled "prci-terminal-nixelo.timer" enabled
+
+  run_cmd run_terminal_automation validate nixelo
+
+  assert_status "$RUN_STATUS" 1 "validate reports invalid modes" || return 1
+  assert_contains "$RUN_OUTPUT" 'ASSERT_FAIL systemd-mode prci-terminal-nixelo.timer active=inactive enabled=enabled' 'validate includes broken unit' || return 1
+  assert_contains "$RUN_OUTPUT" 'INVALID:automation-modes scope=nixelo' 'validate failure feedback' || return 1
+}
+
+test_terminal_automation_is_all_valid_alias_reports_valid_modes() {
+  setup_fake_env
+
+  set_unit_state active "manual-terminal-nixelo.timer" inactive
+  set_unit_state enabled "manual-terminal-nixelo.timer" disabled
+  set_unit_state active "agent-terminal-nixelo.timer" inactive
+  set_unit_state enabled "agent-terminal-nixelo.timer" disabled
+  set_unit_state active "prci-terminal-nixelo.timer" inactive
+  set_unit_state enabled "prci-terminal-nixelo.timer" disabled
+
+  run_cmd run_terminal_automation is-all-valid nixelo
+
+  assert_status "$RUN_STATUS" 0 "is-all-valid alias reports valid modes" || return 1
+  assert_contains "$RUN_OUTPUT" 'VALID:automation-modes scope=nixelo' 'alias success feedback' || return 1
 }
 
 test_auto_cycle_skips_when_prci_off() {
@@ -2441,6 +2554,7 @@ main() {
   run_test 'terminal classifier reports busy background terminal running' test_terminal_classifier_reports_busy_background_terminal_running
   run_test 'terminal classifier reports busy waiting for background terminal' test_terminal_classifier_reports_busy_waiting_for_background_terminal
   run_test 'terminal classifier reports busy tail work indicator' test_terminal_classifier_reports_busy_tail_work_indicator
+  run_test 'terminal classifier reports busy opencode esc interrupt footer' test_terminal_classifier_reports_busy_opencode_esc_interrupt_footer
   run_test 'terminal classifier ignores stale background wait outside recent tail' test_terminal_classifier_ignores_stale_background_wait_outside_recent_tail
   run_test 'terminal classifier ignores stale work marker outside recent tail' test_terminal_classifier_ignores_stale_work_marker_outside_recent_tail
   run_test 'terminal classifier reports stuck without prompt' test_terminal_classifier_reports_stuck_without_prompt
@@ -2462,6 +2576,16 @@ main() {
   run_test 'auto cycle happy path cycles branch' test_auto_cycle_happy_path_cycles_branch
   run_test 'auto cycle respects kill switch' test_auto_cycle_respects_kill_switch
   run_test 'timer is-on combines enabled+active' test_timer_on_combined_check
+  run_test 'terminal automation accepts consistent timer modes' test_terminal_automation_accepts_consistent_timer_modes
+  run_test 'terminal automation rejects enabled inactive timer' test_terminal_automation_rejects_enabled_inactive_timer
+  run_test 'terminal automation rejects disabled active timer' test_terminal_automation_rejects_disabled_active_timer
+  run_test 'terminal automation validate reports valid modes' test_terminal_automation_validate_reports_valid_modes
+  run_test 'terminal automation validate reports invalid modes' test_terminal_automation_validate_reports_invalid_modes
+  run_test 'terminal automation is-all-valid alias reports valid modes' test_terminal_automation_is_all_valid_alias_reports_valid_modes
+  run_test 'count threads returns -1 on graphql failure' test_count_unresolved_review_threads_returns_minus_1_on_graphql_failure
+  run_test 'count comments returns -1 on api failure' test_count_new_human_review_comments_returns_minus_1_on_api_failure
+  run_test 'dispatch noops on review check failure' test_dispatch_noops_with_review_check_failed_on_graphql_failure
+  run_test 'dispatch noops on comments api failure' test_dispatch_noops_with_review_check_failed_on_comments_api_failure
 
   printf '\nSummary: %s passed, %s failed, %s total\n' "$PASS_COUNT" "$FAIL_COUNT" "$TEST_COUNT"
 
@@ -2469,8 +2593,6 @@ main() {
     exit 1
   fi
 }
-
-main "$@"
 
 test_count_new_human_review_comments_detects_comments() {
   setup_fake_env
@@ -2507,3 +2629,59 @@ test_done_done_blocks_on_human_comments() {
   assert_status "$RUN_STATUS" 1 "done-done blocks on comments" || return 1
   assert_contains "$RUN_OUTPUT" 'NOT-READY' 'comments cause not-ready' || return 1
 }
+
+test_count_unresolved_review_threads_returns_minus_1_on_graphql_failure() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='99'
+  FAKE_GH_GRAPHQL_EXIT=1
+  export FAKE_GH_OPEN_PR FAKE_GH_GRAPHQL_EXIT
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; count_unresolved_review_threads 99"
+
+  assert_status "$RUN_STATUS" 0 "count threads returns -1 on failure" || return 1
+  assert_contains "$RUN_OUTPUT" '-1' 'returns -1 on GraphQL failure' || return 1
+}
+
+test_count_new_human_review_comments_returns_minus_1_on_api_failure() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='99'
+  FAKE_GH_API_EXIT=1
+  export FAKE_GH_OPEN_PR FAKE_GH_API_EXIT
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; count_new_human_review_comments 99"
+
+  assert_status "$RUN_STATUS" 0 "count comments returns -1 on failure" || return 1
+  assert_contains "$RUN_OUTPUT" '-1' 'returns -1 on REST API failure' || return 1
+}
+
+test_dispatch_noops_with_review_check_failed_on_graphql_failure() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='99'
+  FAKE_GH_HEAD_SHA='abc123'
+  FAKE_GH_PR_CHECKS='success'
+  FAKE_GH_GRAPHQL_EXIT=1
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_PR_CHECKS FAKE_GH_GRAPHQL_EXIT
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; unresolved_threads=\$(count_unresolved_review_threads 99); if [[ \"\$unresolved_threads\" == \"-1\" ]]; then echo 'NOOP:review-check-failed — could not fetch unresolved review threads'; fi"
+
+  assert_contains "$RUN_OUTPUT" 'NOOP:review-check-failed' 'dispatch noops on review check failure' || return 1
+}
+
+test_dispatch_noops_with_review_check_failed_on_comments_api_failure() {
+  setup_fake_env
+
+  FAKE_GH_OPEN_PR='99'
+  FAKE_GH_HEAD_SHA='abc123'
+  FAKE_GH_PR_CHECKS='success'
+  FAKE_GH_API_EXIT=1
+  export FAKE_GH_OPEN_PR FAKE_GH_HEAD_SHA FAKE_GH_PR_CHECKS FAKE_GH_API_EXIT
+
+  run_cmd run_real_prci_common "source '$ROOT_DIR/scripts/pr_ci_dispatch_common.sh'; new_human_comments=\$(count_new_human_review_comments 99); if [[ \"\$new_human_comments\" == \"-1\" ]]; then echo 'NOOP:review-check-failed — could not fetch new human review comments'; fi"
+
+  assert_contains "$RUN_OUTPUT" 'NOOP:review-check-failed' 'dispatch noops on comments API failure' || return 1
+}
+
+main "$@"

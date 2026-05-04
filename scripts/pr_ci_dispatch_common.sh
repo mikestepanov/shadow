@@ -240,7 +240,12 @@ alert_telegram() {
 }
 
 get_repo_slug() {
-  cd "$REPO_DIR" && git remote get-url origin 2>/dev/null | sed 's|https://github.com/||; s|.git$||'
+  local remote
+  remote="$(cd "$REPO_DIR" && git remote get-url origin 2>/dev/null || true)"
+  remote="${remote#https://github.com/}"
+  remote="${remote#git@github.com:}"
+  remote="${remote%.git}"
+  printf '%s\n' "$remote"
 }
 
 count_unresolved_review_threads() {
@@ -249,7 +254,7 @@ count_unresolved_review_threads() {
 
   repo_slug="$(get_repo_slug)"
   [[ -n "$repo_slug" ]] || {
-    echo "0"
+    echo "-1"
     return 0
   }
 
@@ -266,17 +271,21 @@ count_unresolved_review_threads() {
       -F number="$pr_number" \
       -f cursor="$cursor" \
       -f query='query($owner: String!, $repo: String!, $number: Int!, $cursor: String) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: 100, after: $cursor) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }' \
-      --jq '[(.data.repository.pullRequest.reviewThreads.nodes // [])[] | select(.isResolved == false)] | length, (.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false), (.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "")' \
+      --jq '[((.data.repository.pullRequest.reviewThreads.nodes // []) | map(select(.isResolved == false)) | length), (.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false), (.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "")] | @tsv' \
       2>/dev/null)" || {
-      echo "0"
+      echo "-1"
       return 0
     }
 
-    total=$((total + $(printf '%s\n' "$page" | sed -n '1p')))
-    if [[ "$(printf '%s\n' "$page" | sed -n '2p')" != "true" ]]; then
+    local page_count has_next_page next_cursor
+    IFS=$'\t' read -r page_count has_next_page next_cursor <<< "$page"
+    page_count="${page_count:-0}"
+    [[ "$page_count" =~ ^[0-9]+$ ]] || page_count=0
+    total=$((total + page_count))
+    if [[ "${has_next_page:-false}" != "true" ]]; then
       break
     fi
-    cursor="$(printf '%s\n' "$page" | sed -n '3p')"
+    cursor="${next_cursor:-}"
     [[ -n "$cursor" ]] || break
   done
 
@@ -286,11 +295,11 @@ count_unresolved_review_threads() {
 
 count_new_human_review_comments() {
   local pr_number="$1"
-  local repo_slug owner repo
+  local repo_slug owner repo count
 
   repo_slug="$(get_repo_slug)"
   if [[ -z "$repo_slug" ]]; then
-    echo "0"
+    echo "-1"
     return
   fi
 
@@ -298,9 +307,15 @@ count_new_human_review_comments() {
   repo="$(echo "$repo_slug" | cut -d'/' -f2)"
 
   # Count review comments NOT from known bots
-  gh api "repos/${owner}/${repo}/pulls/${pr_number}/comments" \
-    --jq '[.[] | select((.user.login // "") as $login | $login != "Copilot" and $login != "codex-connector" and $login != "coderabbit")] | length' \
-    2>/dev/null || echo "0"
+  count="$(gh api "repos/${owner}/${repo}/pulls/${pr_number}/comments" \
+    --jq '[.[] | select((.user.type // "") != "Bot") | select((.user.login // "") as $login | ($login | test("(^|\\[bot\\]$|bot$|coderabbit|copilot|codex-connector)"; "i") | not))] | length' \
+    2>/dev/null)" || {
+    echo "-1"
+    return
+  }
+
+  [[ "$count" =~ ^[0-9]+$ ]] || count=-1
+  echo "$count"
 }
 
 # ── done-done detection ──────────────────────────────────────────────
@@ -329,6 +344,11 @@ check_done_done() {
   # 2. Check for any human comments (exclude known bots)
   local unresolved
   unresolved="$(count_new_human_review_comments "$pr_number")"
+
+  if [[ "$unresolved" == "-1" ]]; then
+    echo "NOOP:review-check-failed — could not determine human comment count"
+    return 1
+  fi
 
   if [[ "$unresolved" -gt 0 ]]; then
     return 1
